@@ -1,55 +1,56 @@
 import { useReducer, useEffect, useCallback, useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import { Spin } from 'antd';
+import { Button, Result, Spin, message } from 'antd';
 import { initialState, reducer } from '../store';
 import { fetchAppState } from '../api/client';
 import { syncAction } from '../api/syncDispatch';
-import { getMockAppCache, saveMockAppCache } from '../api/mockSurvey';
 import { AppContext } from '../context/AppContext';
 import Layout from '../components/Layout';
-import type { AppAction, DispatchFn } from '../types';
+import type { AppAction, Company, DispatchFn, MonitorEvent } from '../types';
+import { apiActions } from '../api/client';
 
 export default function ProtectedApp() {
   const token = localStorage.getItem('token');
   const [state, dispatch] = useReducer(reducer, initialState);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const loadData = useCallback(() => {
     if (!token) return;
+    setLoading(true);
+    setError(null);
     fetchAppState()
-      .then(data => { dispatch({ type: 'HYDRATE', data }); setLoading(false); })
+      .then(data => {
+        dispatch({ type: 'HYDRATE', data });
+        setLoading(false);
+        apiActions.checkDadataChanges()
+          .then(({ data: check }) => {
+            if (check.companies?.length) {
+              dispatch({ type: 'PATCH_COMPANIES', companies: check.companies as Company[] });
+            }
+            if (check.events?.length) {
+              dispatch({ type: 'PREPEND_MONITOR_EVENTS', events: check.events as MonitorEvent[] });
+              message.info(`Обнаружены изменения в DaData: ${check.events.length} уведомлений`);
+            }
+          })
+          .catch(() => {});
+      })
       .catch(err => {
-        console.warn('API unavailable, using local mock data:', err.message);
-        const cache = getMockAppCache();
-        dispatch({
-          type: 'HYDRATE',
-          data: cache ? { ...initialState, processes: cache.processes } : initialState,
-        });
+        setError(err?.response?.data?.error || err?.message || 'Не удалось загрузить данные');
         setLoading(false);
       });
   }, [token]);
 
   useEffect(() => {
-    if (token !== 'mock-dev-token' || loading) return;
-    saveMockAppCache(state.processes);
-  }, [state.processes, token, loading]);
-
-  useEffect(() => {
-    if (token !== 'mock-dev-token') return;
-    const onFocus = () => {
-      const cache = getMockAppCache();
-      if (cache) dispatch({ type: 'HYDRATE', data: { processes: cache.processes } });
-    };
-    window.addEventListener('focus', onFocus);
-    return () => window.removeEventListener('focus', onFocus);
-  }, [token]);
+    loadData();
+  }, [loadData]);
 
   const dispatchSync = useCallback<DispatchFn>(async (action) => {
     try {
       await syncAction(action as AppAction, dispatch);
     } catch (err) {
       console.error(err);
-      dispatch(action as AppAction);
+      throw err;
     }
   }, []);
 
@@ -61,6 +62,24 @@ export default function ProtectedApp() {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <Spin size="large" tip="Загрузка данных..." />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <Result
+          status="error"
+          title="Ошибка загрузки"
+          subTitle={error}
+          extra={[
+            <Button type="primary" key="retry" onClick={loadData}>Повторить</Button>,
+            <Button key="login" onClick={() => { localStorage.removeItem('token'); window.location.href = '/login'; }}>
+              Выйти
+            </Button>,
+          ]}
+        />
       </div>
     );
   }

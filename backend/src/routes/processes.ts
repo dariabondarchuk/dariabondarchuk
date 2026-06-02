@@ -1,9 +1,10 @@
 import { Router } from 'express';
 import crypto from 'crypto';
-import { ProcessStatus, SectionStatus, Prisma } from '@prisma/client';
+import { Prisma, ProcessStatus, SectionStatus } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { AuthRequest, authMiddleware } from '../middleware/auth';
 import { fromClientProcessStatus, fromClientSectionStatus, mapProcess, writeAudit } from '../utils/helpers';
+import { applyAnketaDataToCompany } from '../utils/applyAnketaData';
 
 const router = Router();
 
@@ -101,8 +102,8 @@ router.put('/:id/sections/:sectionNumber', authMiddleware, async (req: AuthReque
 router.post('/:id/invite', authMiddleware, async (req: AuthRequest, res) => {
   const processId = Number(req.params.id);
   const body = req.body as { email?: string; comment?: string };
-  const process = await prisma.process.findUnique({ where: { id: processId } });
-  if (!process) return res.status(404).json({ error: 'Not found' });
+  const existingProcess = await prisma.process.findUnique({ where: { id: processId } });
+  if (!existingProcess) return res.status(404).json({ error: 'Not found' });
 
   const token = crypto.randomUUID();
   const expiresAt = new Date();
@@ -122,7 +123,7 @@ router.post('/:id/invite', authMiddleware, async (req: AuthRequest, res) => {
     where: { id: processId },
     data: {
       status: ProcessStatus.SENT,
-      sentTo: body.email || process.sentTo,
+      sentTo: body.email || existingProcess.sentTo,
       sentAt: new Date(),
     },
     include: { sections: { orderBy: { sectionNumber: 'asc' } } },
@@ -136,6 +137,31 @@ router.post('/:id/invite', authMiddleware, async (req: AuthRequest, res) => {
     url: `${baseUrl}/survey/${token}`,
     process: mapProcess(updated as unknown as Record<string, unknown> & { sections?: Array<Record<string, unknown>> }),
   });
+});
+
+router.post('/:id/verify', authMiddleware, async (req: AuthRequest, res) => {
+  const id = Number(req.params.id);
+  const existing = await prisma.process.findUnique({
+    where: { id },
+    include: { sections: { orderBy: { sectionNumber: 'asc' } } },
+  });
+  if (!existing) return res.status(404).json({ error: 'Not found' });
+  if (existing.status !== ProcessStatus.NEED_CHECK) {
+    return res.status(400).json({ error: 'Process is not awaiting verification' });
+  }
+
+  const sectionData = existing.sections[0]?.data as Record<string, unknown> | undefined;
+  if (existing.anketaType && sectionData) {
+    await applyAnketaDataToCompany(existing.companyId, existing.anketaType, sectionData);
+  }
+
+  const updated = await prisma.process.update({
+    where: { id },
+    data: { status: ProcessStatus.VERIFIED },
+    include: { sections: { orderBy: { sectionNumber: 'asc' } } },
+  });
+  await writeAudit(req.userId, 'Process', id, 'VERIFY', { status: 'VERIFIED', anketaType: existing.anketaType }, req.ip);
+  res.json(mapProcess(updated as unknown as Record<string, unknown> & { sections?: Array<Record<string, unknown>> }));
 });
 
 export default router;

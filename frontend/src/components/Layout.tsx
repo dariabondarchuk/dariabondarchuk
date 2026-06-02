@@ -1,7 +1,9 @@
 import { Layout, Menu, Badge, Button, Typography } from 'antd';
 import {
+  BankOutlined,
   FormOutlined,
   TableOutlined,
+  ClusterOutlined,
   BellOutlined,
   BookOutlined,
   ClockCircleOutlined,
@@ -16,14 +18,24 @@ const { Sider, Header, Content } = Layout;
 const { Text } = Typography;
 
 const menuItems = [
+  { key: '/companies', icon: <BankOutlined />, label: 'Компании' },
   { key: '/ankety', icon: <FormOutlined />, label: 'Анкеты' },
-  { key: '/registry', icon: <TableOutlined />, label: 'Реестры' },
+  { key: '/processes', icon: <ClusterOutlined />, label: 'Процессы' },
+  { key: '/process-registry', icon: <TableOutlined />, label: 'Реестр процессов' },
   { key: '/rkn', icon: <BellOutlined />, label: 'Уведомления РКН' },
-  { key: '/journal', icon: <BookOutlined />, label: 'Журналы' },
-  { key: '/monitor', icon: <ClockCircleOutlined />, label: 'Мониторинг' },
+  { key: '/journal', icon: <BookOutlined />, label: 'Журналы обращений' },
+  { key: '/monitor', icon: <ClockCircleOutlined />, label: 'Уведомления' },
   { key: '/docs', icon: <FileTextOutlined />, label: 'Документы' },
   { key: '/settings', icon: <SettingOutlined />, label: 'Настройки' },
 ];
+
+function selectedMenuKey(pathname: string) {
+  if (pathname.startsWith('/companies')) return '/companies';
+  if (pathname.startsWith('/ankety')) return '/ankety';
+  if (pathname.startsWith('/process-registry')) return '/process-registry';
+  if (pathname.startsWith('/processes')) return '/processes';
+  return pathname;
+}
 
 export default function AppLayout() {
   const { state } = useApp();
@@ -55,13 +67,13 @@ export default function AppLayout() {
           <div style={{ width: 34, height: 34, borderRadius: 8, background: '#0055FF', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: 15 }}>С</div>
           <div>
             <div style={{ fontSize: 13.5, fontWeight: 700, color: '#fff' }}>ГК «Самолёт»</div>
-            <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,.5)' }}>Реестр ПДн</div>
+            <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,.5)' }}>Процессы по ПДн</div>
           </div>
         </div>
         <Menu
           theme="dark"
           mode="inline"
-          selectedKeys={[location.pathname]}
+          selectedKeys={[selectedMenuKey(location.pathname)]}
           style={{ background: 'transparent', border: 'none', padding: '8px' }}
           items={menuItems.map(item => ({
             ...item,
@@ -75,7 +87,7 @@ export default function AppLayout() {
           onClick={({ key }) => navigate(key)}
         />
         <div style={{ padding: '10px 14px', borderTop: '1px solid rgba(255,255,255,.1)', fontSize: 11, color: 'rgba(255,255,255,.4)' }}>
-          {user.email || 'e.mayer@samolet.ru'}
+          {user.email || '—'}
         </div>
       </Sider>
       <Layout>

@@ -6,6 +6,7 @@ import {
   Form,
   Input,
   Modal,
+  Popover,
   Select,
   Space,
   Table,
@@ -14,17 +15,33 @@ import {
   Upload,
   message,
 } from 'antd';
-import { EyeOutlined, InboxOutlined, PlusOutlined } from '@ant-design/icons';
+import {
+  DeleteOutlined,
+  DownloadOutlined,
+  EyeOutlined,
+  FileZipOutlined,
+  InboxOutlined,
+  PaperClipOutlined,
+  PlusOutlined,
+  UploadOutlined,
+} from '@ant-design/icons';
 import type { UploadFile } from 'antd';
 import dayjs from 'dayjs';
 import { useApp } from '../context/AppContext';
 import { StatusBadge } from '../components/StatusBadge';
 import { apiActions } from '../api/client';
+import { downloadBlob } from '../utils/downloadBlob';
 import type { JournalEntry } from '../types';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
 const { Dragger } = Upload;
+
+const MAX_ADDITIONAL_FILES = 20;
+
+function journalDisplayStatus(record: JournalEntry) {
+  return record.displayStatus || (record.hasAnswerFile ? record.status : 'waiting_answer');
+}
 
 export default function JournalPage() {
   const { state, dispatch } = useApp();
@@ -35,14 +52,20 @@ export default function JournalPage() {
   const [answerDraft, setAnswerDraft] = useState('');
   const [answerFile, setAnswerFile] = useState<UploadFile[]>([]);
   const [contentFiles, setContentFiles] = useState<UploadFile[]>([]);
+  const [uploadingId, setUploadingId] = useState<number | null>(null);
   const [form] = Form.useForm();
 
   const entries = state.journalEntries.filter(
     j =>
       j.type === tab &&
       (j.sender.toLowerCase().includes(search.toLowerCase()) ||
-        j.content.toLowerCase().includes(search.toLowerCase()))
+        j.content.toLowerCase().includes(search.toLowerCase())),
   );
+
+  const replaceEntry = (entry: JournalEntry) => {
+    dispatch({ type: 'REPLACE_JOURNAL_ENTRY', entry });
+    if (detail?.id === entry.id) setDetail(entry);
+  };
 
   const openAdd = () => {
     form.setFieldsValue({
@@ -51,10 +74,11 @@ export default function JournalPage() {
       sender: '',
       content: '',
     });
+    setContentFiles([]);
     setAddModal(true);
   };
 
-  const handleAdd = (values: { companyId: number; dateIn: dayjs.Dayjs; sender: string; content: string }) => {
+  const handleAdd = async (values: { companyId: number; dateIn: dayjs.Dayjs; sender: string; content: string }) => {
     const formData = new FormData();
     formData.append('companyId', String(values.companyId));
     formData.append('type', tab);
@@ -66,61 +90,281 @@ export default function JournalPage() {
       formData.append('contentFile', contentFiles[0].originFileObj);
     }
 
-    if (localStorage.getItem('token') === 'mock-dev-token') {
-      dispatch({
-        type: 'ADD_JOURNAL',
-        entry: {
-          companyId: values.companyId,
-          type: tab,
-          dateIn: values.dateIn ? values.dateIn.format('DD.MM.YYYY') : '',
-          dateOut: '',
-          sender: values.sender,
-          content: values.content,
-          answer: '',
-          status: 'new',
-        },
-      });
-    } else {
-      dispatch({ type: 'ADD_JOURNAL', formData });
+    try {
+      await dispatch({ type: 'ADD_JOURNAL', formData });
+      message.success('Обращение добавлено');
+      setAddModal(false);
+      setContentFiles([]);
+      form.resetFields();
+    } catch (err) {
+      const msg = err && typeof err === 'object' && 'response' in err
+        ? (err as { response?: { data?: { error?: string } } }).response?.data?.error
+        : undefined;
+      message.error(msg || 'Не удалось сохранить обращение');
+    }
+  };
+
+  const uploadKindFile = async (record: JournalEntry, kind: 'content' | 'answer', file: File) => {
+    setUploadingId(record.id);
+    try {
+      const fd = new FormData();
+      fd.append(kind === 'content' ? 'contentFile' : 'answerFile', file);
+      fd.append('kind', kind);
+      const { data } = await apiActions.uploadJournalFile(record.id, fd);
+      replaceEntry(data as JournalEntry);
+      message.success(kind === 'content' ? 'Файл обращения загружен' : 'Файл ответа загружен');
+    } catch (err) {
+      const msg = err && typeof err === 'object' && 'response' in err
+        ? (err as { response?: { data?: { error?: string } } }).response?.data?.error
+        : undefined;
+      message.error(msg || 'Не удалось загрузить файл');
+    } finally {
+      setUploadingId(null);
+    }
+  };
+
+  const downloadKindFile = async (record: JournalEntry, kind: 'content' | 'answer') => {
+    const name = kind === 'content' ? record.contentFileName : record.answerFileName;
+    try {
+      const { data } = await apiActions.downloadJournalFile(record.id, kind);
+      downloadBlob(data as Blob, name || `${kind}.bin`);
+    } catch {
+      message.error('Не удалось скачать файл');
+    }
+  };
+
+  const uploadAdditionalFiles = async (record: JournalEntry, files: File[]) => {
+    if (!files.length) return;
+
+    const current = record.additionalFiles?.length ?? 0;
+    if (current + files.length > MAX_ADDITIONAL_FILES) {
+      message.warning(`Можно прикрепить не более ${MAX_ADDITIONAL_FILES} дополнительных файлов (сейчас ${current})`);
+      return;
     }
 
-    message.success('Обращение добавлено');
-    setAddModal(false);
-    setContentFiles([]);
-    form.resetFields();
+    setUploadingId(record.id);
+    try {
+      const fd = new FormData();
+      files.forEach(f => fd.append('files', f));
+      const { data } = await apiActions.uploadJournalAdditionalFiles(record.id, fd);
+      replaceEntry(data as JournalEntry);
+      message.success(files.length > 1 ? `Загружено файлов: ${files.length}` : 'Файл загружен');
+    } catch (err) {
+      const msg = err && typeof err === 'object' && 'response' in err
+        ? (err as { response?: { data?: { error?: string } } }).response?.data?.error
+        : undefined;
+      message.error(msg || 'Не удалось загрузить файлы');
+    } finally {
+      setUploadingId(null);
+    }
+  };
+
+  const downloadAdditionalFile = async (record: JournalEntry, index: number, name: string) => {
+    try {
+      const { data } = await apiActions.downloadJournalAdditionalFile(record.id, index);
+      downloadBlob(data as Blob, name);
+    } catch {
+      message.error('Не удалось скачать файл');
+    }
+  };
+
+  const deleteAdditionalFile = async (record: JournalEntry, index: number) => {
+    try {
+      const { data } = await apiActions.deleteJournalAdditionalFile(record.id, index);
+      replaceEntry(data as JournalEntry);
+      message.success('Файл удалён');
+    } catch {
+      message.error('Не удалось удалить файл');
+    }
   };
 
   const saveAnswer = async () => {
-    if (!detail || !answerDraft.trim()) return;
-    await dispatch({
-      type: 'UPDATE_JOURNAL',
-      id: detail.id,
-      data: {
-        answer: answerDraft,
-        dateOut: dayjs().format('DD.MM.YYYY'),
-        status: 'closed',
-      },
-    });
-    if (answerFile[0]?.originFileObj && localStorage.getItem('token') !== 'mock-dev-token') {
-      const fd = new FormData();
-      fd.append('answerFile', answerFile[0].originFileObj);
-      await apiActions.uploadJournalAnswerFile(detail.id, fd);
+    if (!detail) return;
+    if (!answerDraft.trim() && !answerFile[0]?.originFileObj) return;
+
+    try {
+      if (answerDraft.trim()) {
+        await dispatch({
+          type: 'UPDATE_JOURNAL',
+          id: detail.id,
+          data: {
+            answer: answerDraft,
+            ...(detail.hasAnswerFile
+              ? { dateOut: dayjs().format('DD.MM.YYYY'), status: 'closed' }
+              : {}),
+          },
+        });
+      }
+      if (answerFile[0]?.originFileObj) {
+        const fd = new FormData();
+        fd.append('answerFile', answerFile[0].originFileObj);
+        fd.append('kind', 'answer');
+        const { data } = await apiActions.uploadJournalFile(detail.id, fd);
+        replaceEntry(data as JournalEntry);
+      }
+      message.success('Ответ сохранён');
+      setAnswerDraft('');
+      setAnswerFile([]);
+    } catch {
+      message.error('Не удалось сохранить ответ');
     }
-    message.success('Ответ сохранён');
-    setDetail(null);
-    setAnswerDraft('');
-    setAnswerFile([]);
+  };
+
+  const downloadJournalFile = async (kind: 'content' | 'answer', filename?: string | null) => {
+    if (!detail) return;
+    try {
+      const { data } = await apiActions.downloadJournalFile(detail.id, kind);
+      downloadBlob(data as Blob, filename || `${kind}.bin`);
+    } catch {
+      message.error('Не удалось скачать файл');
+    }
+  };
+
+  const deleteJournalFile = async (kind: 'content' | 'answer') => {
+    if (!detail) return;
+    try {
+      const { data } = await apiActions.deleteJournalFile(detail.id, kind);
+      replaceEntry(data as JournalEntry);
+      message.success('Файл удалён');
+    } catch {
+      message.error('Не удалось удалить файл');
+    }
+  };
+
+  const downloadArchive = async () => {
+    if (!detail) return;
+    try {
+      const { data } = await apiActions.downloadJournalArchive(detail.id);
+      downloadBlob(data as Blob, `journal-${detail.id}.zip`);
+    } catch {
+      message.error('Не удалось скачать архив');
+    }
+  };
+
+  const renderFileRow = (label: string, kind: 'content' | 'answer', hasFile?: boolean, fileName?: string | null) => {
+    if (!hasFile) return null;
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+        <Text type="secondary">{label}:</Text>
+        <Text style={{ flex: 1 }}>{fileName}</Text>
+        <Button type="text" icon={<DownloadOutlined />} onClick={() => downloadJournalFile(kind, fileName || undefined)} />
+        <Button type="text" danger icon={<DeleteOutlined />} onClick={() => deleteJournalFile(kind)} />
+      </div>
+    );
+  };
+
+  const renderFileCell = (record: JournalEntry, kind: 'content' | 'answer') => {
+    const hasFile = kind === 'content' ? record.hasContentFile : record.hasAnswerFile;
+    const fileName = kind === 'content' ? record.contentFileName : record.answerFileName;
+    if (hasFile) {
+      return (
+        <Button
+          type="link"
+          size="small"
+          icon={<DownloadOutlined />}
+          onClick={() => downloadKindFile(record, kind)}
+          style={{ padding: 0 }}
+        >
+          {fileName && fileName.length > 18 ? `${fileName.slice(0, 16)}…` : fileName}
+        </Button>
+      );
+    }
+
+    return (
+      <Upload
+        showUploadList={false}
+        beforeUpload={file => {
+          uploadKindFile(record, kind, file);
+          return false;
+        }}
+        disabled={uploadingId === record.id}
+      >
+        <Button type="link" size="small" icon={<UploadOutlined />} loading={uploadingId === record.id}>
+          Загрузить
+        </Button>
+      </Upload>
+    );
+  };
+
+  const renderAdditionalCell = (record: JournalEntry) => {
+    const files = record.additionalFiles ?? [];
+    const remaining = MAX_ADDITIONAL_FILES - files.length;
+
+    const popoverContent = (
+      <div style={{ width: 280 }}>
+        {files.length > 0 && (
+          <div style={{ marginBottom: 12 }}>
+            {files.map(f => (
+              <div key={`${record.id}-${f.index}`} style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+                <Text ellipsis style={{ flex: 1, maxWidth: 180 }}>{f.name}</Text>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<DownloadOutlined />}
+                  onClick={() => downloadAdditionalFile(record, f.index, f.name)}
+                />
+                <Button
+                  type="text"
+                  size="small"
+                  danger
+                  icon={<DeleteOutlined />}
+                  onClick={() => deleteAdditionalFile(record, f.index)}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+        {remaining > 0 ? (
+          <Upload
+            multiple
+            showUploadList={false}
+            beforeUpload={(file, fileList) => {
+              if (fileList.indexOf(file) === fileList.length - 1) {
+                const batch = fileList
+                  .map(f => (f as UploadFile).originFileObj ?? f)
+                  .filter((f): f is File => f instanceof File)
+                  .slice(0, remaining);
+                if (batch.length) uploadAdditionalFiles(record, batch);
+              }
+              return false;
+            }}
+            disabled={uploadingId === record.id}
+          >
+            <Button size="small" icon={<UploadOutlined />} loading={uploadingId === record.id}>
+              Добавить ({remaining} из {MAX_ADDITIONAL_FILES})
+            </Button>
+          </Upload>
+        ) : (
+          <Text type="secondary">Достигнут лимит {MAX_ADDITIONAL_FILES} файлов</Text>
+        )}
+      </div>
+    );
+
+    return (
+      <Popover title="Дополнительные файлы" trigger="click" content={popoverContent}>
+        <Button type="link" size="small" icon={<PaperClipOutlined />}>
+          {files.length ? `${files.length} файл(ов)` : 'Добавить'}
+        </Button>
+      </Popover>
+    );
   };
 
   const columns = [
-    { title: 'Дата запроса', dataIndex: 'dateIn', key: 'dateIn' },
+    { title: 'Дата запроса', dataIndex: 'dateIn', key: 'dateIn', width: 110 },
     {
       title: 'Дата ответа',
       dataIndex: 'dateOut',
       key: 'dateOut',
-      render: (v: string) => v || <Text type="warning">Ожидает</Text>,
+      width: 110,
+      render: (v: string, record: JournalEntry) =>
+        v || (record.hasAnswerFile ? '—' : <Text type="warning">Ожидает</Text>),
     },
-    { title: 'Отправитель', dataIndex: 'sender', key: 'sender', render: (v: string) => <span style={{ fontWeight: 550 }}>{v}</span> },
+    {
+      title: 'Заявитель',
+      dataIndex: 'sender',
+      key: 'sender',
+      render: (v: string) => <span style={{ fontWeight: 550 }}>{v}</span>,
+    },
     {
       title: 'Компания',
       key: 'company',
@@ -129,17 +373,45 @@ export default function JournalPage() {
     },
     { title: 'Содержание', dataIndex: 'content', key: 'content', ellipsis: true },
     {
+      title: 'Обращение',
+      key: 'appeal',
+      width: 130,
+      render: (_: unknown, record: JournalEntry) => renderFileCell(record, 'content'),
+    },
+    {
+      title: 'Ответ',
+      key: 'answerFile',
+      width: 130,
+      render: (_: unknown, record: JournalEntry) => renderFileCell(record, 'answer'),
+    },
+    {
       title: 'Статус',
-      dataIndex: 'status',
       key: 'status',
-      render: (status: string) => <StatusBadge status={status} />,
+      width: 150,
+      render: (_: unknown, record: JournalEntry) => (
+        <StatusBadge status={journalDisplayStatus(record)} />
+      ),
+    },
+    {
+      title: 'Доп. файлы',
+      key: 'additional',
+      width: 120,
+      render: (_: unknown, record: JournalEntry) => renderAdditionalCell(record),
     },
     {
       title: '',
       key: 'actions',
-      width: 56,
+      width: 48,
       render: (_: unknown, record: JournalEntry) => (
-        <Button type="text" icon={<EyeOutlined />} onClick={() => { setDetail(record); setAnswerDraft(''); }} />
+        <Button
+          type="text"
+          icon={<EyeOutlined />}
+          onClick={() => {
+            setDetail(record);
+            setAnswerDraft(record.answer || '');
+            setAnswerFile([]);
+          }}
+        />
       ),
     },
   ];
@@ -162,7 +434,7 @@ export default function JournalPage() {
             Добавить
           </Button>
         </Space>
-        <Table<JournalEntry> rowKey="id" dataSource={entries} columns={columns} pagination={false} size="middle" />
+        <Table<JournalEntry> rowKey="id" dataSource={entries} columns={columns} pagination={false} size="middle" scroll={{ x: 1200 }} />
       </Card>
 
       <Modal
@@ -176,18 +448,16 @@ export default function JournalPage() {
           <Form.Item name="dateIn" label="Дата поступления" rules={[{ required: true, message: 'Укажите дату' }]}>
             <DatePicker style={{ width: '100%' }} format="DD.MM.YYYY" />
           </Form.Item>
-          <Form.Item name="sender" label="Отправитель" rules={[{ required: true, message: 'Укажите отправителя' }]}>
+          <Form.Item name="sender" label="Заявитель" rules={[{ required: true, message: 'Укажите заявителя' }]}>
             <Input />
           </Form.Item>
           <Form.Item name="companyId" label="Компания" rules={[{ required: true }]}>
-            <Select
-              options={state.companies.map(c => ({ value: c.id, label: c.name }))}
-            />
+            <Select options={state.companies.map(c => ({ value: c.id, label: c.name }))} />
           </Form.Item>
           <Form.Item name="content" label="Содержание запроса" rules={[{ required: true, message: 'Укажите содержание' }]}>
             <TextArea rows={4} />
           </Form.Item>
-          <Form.Item label="Прикрепить файл">
+          <Form.Item label="Файл обращения">
             <Dragger
               fileList={contentFiles}
               beforeUpload={() => false}
@@ -209,10 +479,10 @@ export default function JournalPage() {
         title="Детали обращения"
         open={!!detail}
         onCancel={() => setDetail(null)}
-        footer={detail && !detail.answer ? (
+        footer={detail && !detail.hasAnswerFile ? (
           <Space>
             <Button onClick={() => setDetail(null)}>Закрыть</Button>
-            <Button type="primary" onClick={saveAnswer} disabled={!answerDraft.trim()}>
+            <Button type="primary" onClick={saveAnswer} disabled={!answerDraft.trim() && !answerFile.length}>
               Сохранить ответ
             </Button>
           </Space>
@@ -224,6 +494,13 @@ export default function JournalPage() {
       >
         {detail && (
           <>
+            {(detail.hasContentFile || detail.hasAnswerFile || (detail.additionalFiles?.length ?? 0) > 0) && (
+              <div style={{ marginBottom: 16, textAlign: 'right' }}>
+                <Button icon={<FileZipOutlined />} onClick={downloadArchive}>
+                  Скачать архивом
+                </Button>
+              </div>
+            )}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
               <div>
                 <Text type="secondary">Дата поступления</Text>
@@ -231,7 +508,17 @@ export default function JournalPage() {
               </div>
               <div>
                 <Text type="secondary">Дата ответа</Text>
-                <div>{detail.dateOut || 'Нет ответа'}</div>
+                <div>{detail.dateOut || (detail.hasAnswerFile ? '—' : 'Ожидает')}</div>
+              </div>
+            </div>
+            <div style={{ marginBottom: 8 }}>
+              <Text type="secondary">Заявитель</Text>
+              <div>{detail.sender}</div>
+            </div>
+            <div style={{ marginBottom: 8 }}>
+              <Text type="secondary">Статус</Text>
+              <div style={{ marginTop: 4 }}>
+                <StatusBadge status={journalDisplayStatus(detail)} />
               </div>
             </div>
             <div style={{ marginBottom: 16 }}>
@@ -239,22 +526,27 @@ export default function JournalPage() {
               <div style={{ padding: '10px 12px', background: '#fafafa', borderRadius: 7, border: '1px solid #e8e8e8', marginTop: 4 }}>
                 {detail.content}
               </div>
+              {renderFileRow('Файл обращения', 'content', detail.hasContentFile, detail.contentFileName)}
             </div>
-            <div>
+            <div style={{ marginBottom: 16 }}>
               <Text type="secondary">Ответ</Text>
               {detail.answer ? (
                 <div style={{ padding: '10px 12px', background: '#f6ffed', borderRadius: 7, border: '1px solid #b7eb8f', marginTop: 4 }}>
                   {detail.answer}
                 </div>
-              ) : (
+              ) : null}
+              {renderFileRow('Файл ответа', 'answer', detail.hasAnswerFile, detail.answerFileName)}
+              {!detail.hasAnswerFile && (
                 <>
-                  <TextArea
-                    rows={4}
-                    placeholder="Введите ответ..."
-                    value={answerDraft}
-                    onChange={e => setAnswerDraft(e.target.value)}
-                    style={{ marginTop: 4, marginBottom: 12 }}
-                  />
+                  {!detail.answer && (
+                    <TextArea
+                      rows={4}
+                      placeholder="Введите текст ответа (статус изменится после загрузки файла ответа)..."
+                      value={answerDraft}
+                      onChange={e => setAnswerDraft(e.target.value)}
+                      style={{ marginTop: 8, marginBottom: 12 }}
+                    />
+                  )}
                   <Dragger
                     fileList={answerFile}
                     beforeUpload={() => false}
@@ -265,6 +557,10 @@ export default function JournalPage() {
                   </Dragger>
                 </>
               )}
+            </div>
+            <div>
+              <Text type="secondary">Дополнительные файлы</Text>
+              <div style={{ marginTop: 8 }}>{renderAdditionalCell(detail)}</div>
             </div>
           </>
         )}

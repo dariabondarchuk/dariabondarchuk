@@ -19,6 +19,8 @@ enum ProcessStatus {
   REVIEW
   ACCEPTED
   RETURNED
+  NEED_CHECK
+  VERIFIED
 }
 
 enum SectionStatus {
@@ -74,6 +76,7 @@ model Company {
   pdStartDate    DateTime?
   isOperator     Boolean              @default(false)
   hasCrossBorder Boolean              @default(false)
+  hasDirectories Boolean              @default(false)
   contactEmail   String?
   offices        Json                 @default("[]")
   sites          Json                 @default("[]")
@@ -86,6 +89,7 @@ model Company {
   journalEntries    JournalEntry[]
   monitorEvents     MonitorEvent[]
   generatedDocuments GeneratedDocument[]
+  anketaInvites      AnketaInvite[]
 }
 
 model CompanyResponsible {
@@ -116,6 +120,24 @@ model Process {
   updatedAt DateTime      @updatedAt
   sections  ProcessSection[]
   invites   ProcessInvite[]
+  anketaType String?
+  sourceInvites AnketaInvite[]
+}
+
+model AnketaInvite {
+  id          Int       @id @default(autoincrement())
+  companyId   Int
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  anketaType  String
+  token       String    @unique
+  email       String?
+  comment     String?
+  data        Json      @default("{}")
+  expiresAt   DateTime?
+  submittedAt DateTime?
+  processId   Int?
+  process     Process?  @relation(fields: [processId], references: [id], onDelete: SetNull)
+  createdAt   DateTime  @default(now())
 }
 
 model ProcessInvite {
@@ -174,9 +196,10 @@ model JournalEntry {
   content     String
   contentFile String?
   answer      String?
-  answerFile  String?
-  status      JournalStatus @default(NEW)
-  createdAt   DateTime      @default(now())
+  answerFile       String?
+  additionalFiles  Json          @default("[]")
+  status           JournalStatus @default(NEW)
+  createdAt        DateTime      @default(now())
 }
 
 model MonitorEvent {
@@ -191,11 +214,13 @@ model MonitorEvent {
 }
 
 model GeneratedDocument {
-  id        Int     @id @default(autoincrement())
-  companyId Int
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  name      String
-  type      String
+  id         Int       @id @default(autoincrement())
+  companyId  Int
+  company    Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name       String
+  type       String
+  filePath   String?
+  uploadDate DateTime?
 }
 
 model AuditLog {

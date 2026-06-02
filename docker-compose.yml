@@ -8,9 +8,15 @@ services:
       POSTGRES_USER: pdn_user
       POSTGRES_PASSWORD: your_secure_password
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "1025:1025"
+      - "8025:8025"
 
 volumes:
   pgdata:

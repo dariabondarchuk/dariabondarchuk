@@ -32,7 +32,8 @@ export function parseDate(value: string | undefined | null) {
 }
 
 const PROCESS_STATUS_MAP: Record<string, string> = {
-  NOT_SENT: 'not_sent', SENT: 'sent', FILLING: 'filling', REVIEW: 'review', ACCEPTED: 'accepted', RETURNED: 'returned',
+  NOT_SENT: 'not_sent', SENT: 'sent', FILLING: 'filling', REVIEW: 'review',
+  ACCEPTED: 'accepted', RETURNED: 'returned', NEED_CHECK: 'need_check', VERIFIED: 'verified',
 };
 const PROCESS_STATUS_REVERSE: Record<string, string> = Object.fromEntries(
   Object.entries(PROCESS_STATUS_MAP).map(([k, v]) => [v, k]),
@@ -80,6 +81,7 @@ export function mapCompany(c: Record<string, unknown>) {
     pdStartDate: c.pdStartDate ? (c.pdStartDate as Date).toISOString().slice(0, 10) : '',
     isOperator: c.isOperator,
     hasCrossBorder: c.hasCrossBorder,
+    hasDirectories: c.hasDirectories ?? false,
     contactEmail: c.contactEmail,
     offices: c.offices ?? [],
     sites: c.sites ?? [],
@@ -119,6 +121,7 @@ export function mapProcess(p: Record<string, unknown> & { sections?: Array<Recor
     status: toClientProcessStatus(p.status as string),
     sentTo: p.sentTo ?? '',
     sentAt: formatDate(p.sentAt as Date | null),
+    anketaType: p.anketaType ?? undefined,
     sections,
   };
 }

@@ -21,7 +21,6 @@ export default function SettingsPage() {
   const [audit, setAudit] = useState<AuditEntry[]>([]);
 
   useEffect(() => {
-    if (localStorage.getItem('token') === 'mock-dev-token') return;
     apiActions.getAuditLog({ limit: 20 })
       .then(res => setAudit(res.data))
       .catch(() => {});

@@ -5,7 +5,7 @@ const api = axios.create({ baseURL: '/api' });
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
-  if (token && token !== 'mock-dev-token') {
+  if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
@@ -27,6 +27,14 @@ api.interceptors.response.use(
 
 export default api;
 
+function postFormData(url: string, formData: FormData) {
+  return api.post(url, formData);
+}
+
+function putFormData(url: string, formData: FormData) {
+  return api.put(url, formData);
+}
+
 export async function login(email: string, password: string) {
   const { data } = await api.post('/auth/login', { email, password });
   localStorage.setItem('token', data.token);
@@ -35,18 +43,13 @@ export async function login(email: string, password: string) {
 }
 
 export async function fetchAppState(): Promise<Partial<AppState>> {
-  const token = localStorage.getItem('token');
-  if (token === 'mock-dev-token') {
-    throw new Error('mock mode');
-  }
-
   const [companies, processes, rknNotifications, journalEntries, monitorEvents, documents] = await Promise.all([
     api.get('/companies'),
     api.get('/processes'),
     api.get('/rkn'),
     api.get('/journal'),
     api.get('/monitor'),
-    api.get('/documents?companyId=1'),
+    api.get('/documents'),
   ]);
 
   const responsibles = [];
@@ -74,11 +77,45 @@ export const apiActions = {
   updateProcessSection: (processId: number, section: number, status: string, data: object) =>
     api.put(`/processes/${processId}/sections/${section}`, { status, data }),
   updateProcess: (id: number, data: object) => api.put(`/processes/${id}`, data),
-  addJournal: (formData: FormData) =>
-    api.post('/journal', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
+  addJournal: (formData: FormData) => postFormData('/journal', formData),
+  getJournalEntries: () => api.get('/journal'),
   updateJournal: (id: number, data: object) => api.put(`/journal/${id}`, data),
-  uploadJournalAnswerFile: (id: number, formData: FormData) =>
-    api.post(`/journal/${id}/files`, formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
+  uploadJournalFile: (id: number, formData: FormData) => postFormData(`/journal/${id}/files`, formData),
+  downloadJournalFile: (id: number, kind: 'content' | 'answer') =>
+    api.get(`/journal/${id}/files/${kind}/download`, { responseType: 'blob' }),
+  downloadJournalArchive: (id: number) =>
+    api.get(`/journal/${id}/archive`, { responseType: 'blob' }),
+  deleteJournalFile: (id: number, kind: 'content' | 'answer') =>
+    api.delete(`/journal/${id}/files/${kind}`),
+  uploadJournalAdditionalFiles: (id: number, formData: FormData) =>
+    postFormData(`/journal/${id}/additional-files`, formData),
+  downloadJournalAdditionalFile: (id: number, index: number) =>
+    api.get(`/journal/${id}/additional-files/${index}/download`, { responseType: 'blob' }),
+  deleteJournalAdditionalFile: (id: number, index: number) =>
+    api.delete(`/journal/${id}/additional-files/${index}`),
+  replaceDocument: (id: number, formData: FormData) => putFormData(`/documents/${id}`, formData),
+  downloadDocumentsArchive: (companyId: number, types?: string) =>
+    api.get('/documents/archive', { responseType: 'blob', params: { companyId, types } }),
+  getRknNotifications: () => api.get('/rkn'),
+  uploadRknDocument: (notificationId: number, formData: FormData) =>
+    postFormData(`/rkn/${notificationId}/documents`, formData),
+  downloadRknDocument: (notificationId: number, docId: number) =>
+    api.get(`/rkn/${notificationId}/documents/${docId}/download`, { responseType: 'blob' }),
+  downloadRknArchive: (notificationId: number) =>
+    api.get(`/rkn/${notificationId}/documents/archive`, { responseType: 'blob' }),
+  deleteRknDocument: (notificationId: number, docId: number) =>
+    api.delete(`/rkn/${notificationId}/documents/${docId}`),
   markRead: (id: number) => api.put(`/monitor/${id}/read`),
+  addMonitorEvent: (data: object) => api.post('/monitor', data),
+  syncCompanyFromDadata: (id: number, query?: string) =>
+    api.post<{ company: unknown; events: unknown[] }>(`/companies/${id}/sync-dadata`, { query, branch_type: 'MAIN' }),
+  checkDadataChanges: () => api.post<{ checked: number; changed: number; events: unknown[]; companies: unknown[] }>(
+    '/companies/check-dadata-changes',
+  ),
+  addCompanyFromDadata: (query: string) => api.post('/companies/from-dadata', { query, branch_type: 'MAIN' }),
+  deleteCompany: (id: number) => api.delete(`/companies/${id}`),
+  addDocument: (formData: FormData) => postFormData('/documents', formData),
+  deleteDocument: (id: number) => api.delete(`/documents/${id}`),
+  downloadDocument: (id: number) => api.get(`/documents/${id}/download`, { responseType: 'blob' }),
   getAuditLog: (params?: { limit?: number; entityType?: string }) => api.get('/audit', { params }),
 };

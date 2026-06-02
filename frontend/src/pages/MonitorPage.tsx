@@ -3,15 +3,21 @@ import {
   Button,
   Card,
   Col,
+  DatePicker,
+  Form,
   Input,
+  Modal,
   Row,
+  Select,
   Space,
   Statistic,
   Table,
   Tag,
   Typography,
+  message,
 } from 'antd';
-import { CheckOutlined } from '@ant-design/icons';
+import { CheckOutlined, PlusOutlined } from '@ant-design/icons';
+import dayjs from 'dayjs';
 import { useApp } from '../context/AppContext';
 import { EVENT_TYPES } from '../constants';
 import type { MonitorEvent } from '../types';
@@ -26,6 +32,9 @@ const eventTagColor: Record<string, string> = {
 export default function MonitorPage() {
   const { state, dispatch } = useApp();
   const [search, setSearch] = useState('');
+  const [addModal, setAddModal] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [form] = Form.useForm();
   const unread = state.monitorEvents.filter(e => !e.read).length;
 
   const events = state.monitorEvents.filter(e => {
@@ -36,6 +45,46 @@ export default function MonitorPage() {
       typeLabel.toLowerCase().includes(search.toLowerCase())
     );
   });
+
+  const openAdd = () => {
+    form.setFieldsValue({
+      companyId: state.companies[0]?.id,
+      eventDate: dayjs(),
+      eventType: 'ceo_change',
+      oldValue: '',
+      newValue: '',
+    });
+    setAddModal(true);
+  };
+
+  const handleAdd = async (values: {
+    companyId: number;
+    eventDate: dayjs.Dayjs;
+    eventType: string;
+    oldValue?: string;
+    newValue?: string;
+  }) => {
+    setSubmitting(true);
+    try {
+      await dispatch({
+        type: 'ADD_MONITOR',
+        data: {
+          companyId: values.companyId,
+          eventDate: values.eventDate?.format('YYYY-MM-DD'),
+          eventType: values.eventType,
+          oldValue: values.oldValue,
+          newValue: values.newValue,
+        },
+      });
+      message.success('Уведомление добавлено');
+      setAddModal(false);
+      form.resetFields();
+    } catch {
+      message.error('Не удалось добавить уведомление');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const columns = [
     {
@@ -85,7 +134,7 @@ export default function MonitorPage() {
 
   return (
     <div>
-      <Title level={3} style={{ marginTop: 0 }}>Мониторинг компаний (Контур.Фокус)</Title>
+      <Title level={3} style={{ marginTop: 0 }}>Уведомления</Title>
       <Row gutter={10} style={{ marginBottom: 14 }}>
         <Col span={6}>
           <Card><Statistic title="Всего событий" value={state.monitorEvents.length} valueStyle={{ color: '#1677ff' }} /></Card>
@@ -107,8 +156,11 @@ export default function MonitorPage() {
         </Col>
       </Row>
       <Card>
-        <Space style={{ marginBottom: 16, width: '100%' }} wrap>
+        <Space style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between' }} wrap>
           <Input.Search placeholder="Поиск..." allowClear value={search} onChange={e => setSearch(e.target.value)} style={{ width: 280 }} />
+          <Button type="primary" icon={<PlusOutlined />} onClick={openAdd}>
+            Добавить
+          </Button>
         </Space>
         <Table<MonitorEvent>
           rowKey="id"
@@ -122,6 +174,38 @@ export default function MonitorPage() {
           })}
         />
       </Card>
+
+      <Modal
+        title="Новое уведомление"
+        open={addModal}
+        onCancel={() => setAddModal(false)}
+        footer={null}
+        destroyOnClose
+      >
+        <Form form={form} layout="vertical" onFinish={handleAdd}>
+          <Form.Item name="eventDate" label="Дата" rules={[{ required: true, message: 'Укажите дату' }]}>
+            <DatePicker style={{ width: '100%' }} format="DD.MM.YYYY" />
+          </Form.Item>
+          <Form.Item name="companyId" label="Компания" rules={[{ required: true, message: 'Выберите компанию' }]}>
+            <Select options={state.companies.map(c => ({ value: c.id, label: c.name }))} />
+          </Form.Item>
+          <Form.Item name="eventType" label="Тип изменения" rules={[{ required: true, message: 'Выберите тип' }]}>
+            <Select options={Object.entries(EVENT_TYPES).map(([value, label]) => ({ value, label }))} />
+          </Form.Item>
+          <Form.Item name="oldValue" label="Было">
+            <Input placeholder="Предыдущее значение" />
+          </Form.Item>
+          <Form.Item name="newValue" label="Стало">
+            <Input placeholder="Новое значение" />
+          </Form.Item>
+          <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
+            <Button onClick={() => setAddModal(false)}>Отмена</Button>
+            <Button type="primary" htmlType="submit" loading={submitting}>
+              Сохранить
+            </Button>
+          </Space>
+        </Form>
+      </Modal>
     </div>
   );
 }

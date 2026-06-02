@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Button, Card, Form, Input, Typography, message } from 'antd';
 import { LockOutlined, MailOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import api from '../api/client';
+import { login } from '../api/client';
 
 const { Title, Text } = Typography;
 
@@ -11,30 +11,17 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (localStorage.getItem('token')) navigate('/ankety');
+    if (localStorage.getItem('token')) navigate('/companies');
   }, [navigate]);
 
   const onFinish = async (values: { email: string; password: string }) => {
-    if (localStorage.getItem('token')) {
-      navigate('/ankety');
-      return;
-    }
     setLoading(true);
     try {
-      const { data } = await api.post('/auth/login', values);
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
+      await login(values.email, values.password);
       message.success('Добро пожаловать!');
-      navigate('/ankety');
+      navigate('/companies');
     } catch {
-      if (values.email === 'admin@samolet.ru' && values.password === 'admin123') {
-        localStorage.setItem('token', 'mock-dev-token');
-        localStorage.setItem('user', JSON.stringify({ email: values.email, name: 'Администратор' }));
-        message.info('Режим без backend — mock-данные');
-        navigate('/ankety');
-      } else {
-        message.error('Неверный email или пароль');
-      }
+      message.error('Неверный email или пароль. Убедитесь, что backend и база данных запущены.');
     } finally {
       setLoading(false);
     }
@@ -46,7 +33,7 @@ export default function LoginPage() {
         <div style={{ textAlign: 'center', marginBottom: 28 }}>
           <div style={{ width: 48, height: 48, borderRadius: 10, background: '#0055FF', color: '#fff', fontWeight: 800, fontSize: 20, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>С</div>
           <Title level={4} style={{ margin: 0 }}>ГК «Самолёт»</Title>
-          <Text type="secondary">Реестр ПДн</Text>
+          <Text type="secondary">Процессы по ПДн</Text>
         </div>
         <Form layout="vertical" onFinish={onFinish} initialValues={{ email: 'admin@samolet.ru', password: 'admin123' }}>
           <Form.Item name="email" label="Email" rules={[{ required: true, type: 'email', message: 'Введите email' }]}>

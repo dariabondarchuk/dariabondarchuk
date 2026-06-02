@@ -10,7 +10,9 @@ import journalRoutes from './routes/journal';
 import monitorRoutes from './routes/monitor';
 import documentsRoutes from './routes/documents';
 import auditRoutes from './routes/audit';
+import dadataRoutes from './routes/dadata';
 import publicSurveyRoutes from './routes/publicSurvey';
+import publicAnketaRoutes from './routes/publicAnketa';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 4000;
@@ -29,6 +31,7 @@ app.get('/api/health', (_req, res) => {
 });
 
 app.use('/api/public', publicSurveyRoutes);
+app.use('/api/public', publicAnketaRoutes);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/companies', companiesRoutes);
@@ -38,6 +41,7 @@ app.use('/api/journal', journalRoutes);
 app.use('/api/monitor', monitorRoutes);
 app.use('/api/documents', documentsRoutes);
 app.use('/api/audit', auditRoutes);
+app.use('/api/dadata', dadataRoutes);
 
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });

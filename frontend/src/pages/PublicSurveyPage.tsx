@@ -4,14 +4,9 @@ import {
   Alert,
   Button,
   Card,
-  Checkbox,
-  Col,
   Form,
-  Input,
   Layout,
   Result,
-  Row,
-  Select,
   Space,
   Spin,
   Tabs,
@@ -21,6 +16,15 @@ import {
 import { CheckCircleOutlined } from '@ant-design/icons';
 import { SECTION_NAMES } from '../constants';
 import { StatusBadge } from '../components/StatusBadge';
+import ProcessSection1Fields from '../components/ProcessSection1Fields';
+import ProcessSection2Fields from '../components/ProcessSection2Fields';
+import ProcessSection3Fields from '../components/ProcessSection3Fields';
+import ProcessSection4Fields from '../components/ProcessSection4Fields';
+import ProcessSection5Fields from '../components/ProcessSection5Fields';
+import ProcessSection6Fields from '../components/ProcessSection6Fields';
+import ProcessSection7Fields from '../components/ProcessSection7Fields';
+import ProcessSection8Fields from '../components/ProcessSection8Fields';
+import ProcessSection9Fields from '../components/ProcessSection9Fields';
 import {
   fetchPublicSurvey,
   savePublicSection,
@@ -30,28 +34,6 @@ import type { SectionData } from '../types';
 
 const { Header, Content } = Layout;
 const { Title, Text } = Typography;
-const { TextArea } = Input;
-
-const MACRO_GOALS = [
-  'Ведение основной деятельности',
-  'Управление персоналом',
-  'Маркетинг',
-  'Финансовый учёт',
-  'Безопасность',
-];
-const COUNT_OPTIONS = [
-  { value: 'less1k', label: 'менее 1 тыс.' },
-  { value: 'less10k', label: 'менее 10 тыс.' },
-  { value: 'less100k', label: 'менее 100 тыс.' },
-  { value: 'more100k', label: 'более 100 тыс.' },
-];
-const LEGAL_BASIS_OPTIONS = [
-  'Согласие субъекта',
-  'Договор',
-  'Трудовой договор',
-  'Закон',
-  'Жизненно важные интересы',
-];
 
 export default function PublicSurveyPage() {
   const { token } = useParams<{ token: string }>();
@@ -127,141 +109,111 @@ export default function PublicSurveyPage() {
   const renderSectionForm = () => {
     const s1 = sections[1]?.data;
     const s2 = sections[2]?.data;
+    const s3 = sections[3]?.data;
+    const s4 = sections[4]?.data;
     const s5 = sections[5]?.data;
+    const s6 = sections[6]?.data;
+    const s7 = sections[7]?.data;
+    const s8 = sections[8]?.data;
+    const s9 = sections[9]?.data;
+    const personGroupSuggestions = Array.isArray(s2?.personGroups)
+      ? s2.personGroups.map(String)
+      : typeof s2?.persons === 'string' && s2.persons
+        ? s2.persons.split(/[,;]/).map(s => s.trim()).filter(Boolean)
+        : [];
+    const sourceSubjectSuggestions = Array.isArray(s4?.sourceSubjects)
+      ? s4.sourceSubjects.map(s => String(s.subject || '')).filter(Boolean)
+      : [];
+    const subjectSuggestionsFor5 = Array.from(new Set([...personGroupSuggestions, ...sourceSubjectSuggestions]));
+    const pdDataSuggestions = [
+      ...(Array.isArray(s5?.pdCategories) ? s5.pdCategories.map(String) : []),
+      ...(Array.isArray(s4?.sourceSubjects)
+        ? s4.sourceSubjects.flatMap(s => (Array.isArray(s.personalData) ? s.personalData.map(String) : []))
+        : []),
+    ];
 
     if (activeSection === 1) {
       return (
-        <>
-          <Form.Item label="Описание процесса">
-            <TextArea
-              rows={3}
-              value={s1?.description || ''}
-              onChange={e => updateSection(1, { description: e.target.value })}
-            />
-          </Form.Item>
-          <Row gutter={12}>
-            <Col span={12}>
-              <Form.Item label="Контактное лицо">
-                <Input
-                  value={s1?.contactName || ''}
-                  onChange={e => updateSection(1, { contactName: e.target.value })}
-                />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item label="Email">
-                <Input
-                  value={s1?.contactEmail || ''}
-                  onChange={e => updateSection(1, { contactEmail: e.target.value })}
-                />
-              </Form.Item>
-            </Col>
-          </Row>
-        </>
+        <ProcessSection1Fields
+          data={s1}
+          onChange={patch => updateSection(1, patch)}
+        />
       );
     }
 
     if (activeSection === 2) {
       return (
-        <>
-          <Row gutter={12}>
-            <Col span={12}>
-              <Form.Item label="Макроцель">
-                <Select
-                  placeholder="Выберите..."
-                  value={s2?.macroGoal || undefined}
-                  onChange={v => updateSection(2, { macroGoal: v })}
-                  options={MACRO_GOALS.map(g => ({ value: g, label: g }))}
-                  allowClear
-                />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item label="Цель обработки ПДн">
-                <Input
-                  value={s2?.goal || ''}
-                  onChange={e => updateSection(2, { goal: e.target.value })}
-                />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Row gutter={12}>
-            <Col span={12}>
-              <Form.Item label="Категории физ. лиц">
-                <Input
-                  value={s2?.persons || ''}
-                  onChange={e => updateSection(2, { persons: e.target.value })}
-                  placeholder="Клиенты, сотрудники..."
-                />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item label="Количество">
-                <Select
-                  placeholder="Выберите..."
-                  value={s2?.count || undefined}
-                  onChange={v => updateSection(2, { count: v })}
-                  options={COUNT_OPTIONS}
-                  allowClear
-                />
-              </Form.Item>
-            </Col>
-          </Row>
-        </>
+        <ProcessSection2Fields
+          data={s2}
+          onChange={patch => updateSection(2, patch)}
+        />
+      );
+    }
+
+    if (activeSection === 3) {
+      return (
+        <ProcessSection3Fields
+          data={s3}
+          onChange={patch => updateSection(3, patch)}
+        />
+      );
+    }
+
+    if (activeSection === 4) {
+      return (
+        <ProcessSection4Fields
+          data={s4}
+          onChange={patch => updateSection(4, patch)}
+          subjectSuggestions={personGroupSuggestions}
+          personalDataSuggestions={pdDataSuggestions}
+        />
       );
     }
 
     if (activeSection === 5) {
       return (
-        <>
-          <Form.Item label="Состав ПДн (через запятую)">
-            <Input
-              value={s5?.pdCategories?.join(', ') || ''}
-              onChange={e =>
-                updateSection(5, {
-                  pdCategories: e.target.value.split(',').map(x => x.trim()).filter(Boolean),
-                })
-              }
-              placeholder="ФИО, адрес, телефон, email..."
-            />
-          </Form.Item>
-          <Space style={{ marginBottom: 12 }}>
-            <Checkbox
-              checked={!!s5?.specialCategories}
-              onChange={e => updateSection(5, { specialCategories: e.target.checked })}
-            >
-              Спецкатегории
-            </Checkbox>
-            <Checkbox
-              checked={!!s5?.biometric}
-              onChange={e => updateSection(5, { biometric: e.target.checked })}
-            >
-              Биометрические
-            </Checkbox>
-          </Space>
-          <Row gutter={12}>
-            <Col span={12}>
-              <Form.Item label="Правовое основание">
-                <Select
-                  placeholder="Выберите..."
-                  value={s5?.legalBasis || undefined}
-                  onChange={v => updateSection(5, { legalBasis: v })}
-                  options={LEGAL_BASIS_OPTIONS.map(o => ({ value: o, label: o }))}
-                  allowClear
-                />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item label="Срок хранения">
-                <Input
-                  value={s5?.retentionPeriod || ''}
-                  onChange={e => updateSection(5, { retentionPeriod: e.target.value })}
-                  placeholder="5 лет"
-                />
-              </Form.Item>
-            </Col>
-          </Row>
-        </>
+        <ProcessSection5Fields
+          data={s5}
+          onChange={patch => updateSection(5, patch)}
+          subjectSuggestions={subjectSuggestionsFor5}
+          personalDataSuggestions={pdDataSuggestions}
+        />
+      );
+    }
+
+    if (activeSection === 6) {
+      return (
+        <ProcessSection6Fields
+          data={s6}
+          onChange={patch => updateSection(6, patch)}
+        />
+      );
+    }
+
+    if (activeSection === 7) {
+      return (
+        <ProcessSection7Fields
+          data={s7}
+          onChange={patch => updateSection(7, patch)}
+        />
+      );
+    }
+
+    if (activeSection === 8) {
+      return (
+        <ProcessSection8Fields
+          data={s8}
+          onChange={patch => updateSection(8, patch)}
+        />
+      );
+    }
+
+    if (activeSection === 9) {
+      return (
+        <ProcessSection9Fields
+          data={s9}
+          onChange={patch => updateSection(9, patch)}
+        />
       );
     }
 
@@ -328,7 +280,7 @@ export default function PublicSurveyPage() {
         }}
       >
         <Title level={4} style={{ color: '#fff', margin: 0 }}>
-          Реестр ПДн — ГК «Самолёт»
+          Процессы по ПДн — ГК «Самолёт»
         </Title>
       </Header>
       <Content style={{ padding: '24px 24px 48px', maxWidth: 960, margin: '0 auto', width: '100%' }}>

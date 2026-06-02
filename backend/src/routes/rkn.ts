@@ -5,6 +5,7 @@ import { prisma } from '../utils/prisma';
 import { AuthRequest, authMiddleware } from '../middleware/auth';
 import { upload } from '../middleware/upload';
 import { formatDate, writeAudit } from '../utils/helpers';
+import { streamZip } from '../utils/zipArchive';
 
 const router = Router();
 
@@ -56,6 +57,22 @@ router.post('/:id/documents', authMiddleware, upload.single('file'), async (req:
 
   await writeAudit(req.userId, 'RknDocument', doc.id, 'CREATE', { fileName: doc.fileName }, req.ip);
   res.status(201).json(doc);
+});
+
+router.get('/:id/documents/archive', authMiddleware, async (req, res) => {
+  const notificationId = Number(req.params.id);
+  const notification = await prisma.rknNotification.findUnique({
+    where: { id: notificationId },
+    include: { company: true, documents: { orderBy: { version: 'desc' } } },
+  });
+  if (!notification) return res.status(404).json({ error: 'Not found' });
+
+  const label = notification.company.shortName || notification.company.name || `rkn-${notificationId}`;
+  streamZip(
+    res,
+    `${label}-rkn.zip`,
+    notification.documents.map(d => ({ path: d.filePath, name: d.fileName })),
+  );
 });
 
 router.get('/:id/documents/:docId/download', authMiddleware, async (req, res) => {

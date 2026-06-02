@@ -1,22 +1,89 @@
+export interface AdditionalProcessContact {
+  email: string;
+}
+
+export interface SourceSubjectEntry {
+  subject: string;
+  personalData: string[];
+}
+
+export interface ProcessedDataSubjectEntry {
+  subject: string;
+  personalData: string[];
+}
+
+export interface ThirdPartyEntry {
+  name: string;
+  receivesFromUs?: boolean;
+  providesToUs?: boolean;
+}
+
+export interface PaperDocumentEntry {
+  name: string;
+  storageLocation?: string;
+  formApproved?: boolean;
+  formApprovedChoice?: 'yes' | 'no';
+  incompatiblePurposesChoice?: 'yes' | 'no';
+  links?: string[];
+  templateFiles?: string[];
+}
+
 export interface SectionData {
   description?: string;
   contactName?: string;
   contactPosition?: string;
   contactEmail?: string;
+  additionalContacts?: AdditionalProcessContact[];
+  additionalContactEmails?: string;
+  regulatingDocuments?: string;
   macroGoal?: string;
   goal?: string;
   persons?: string;
+  personGroups?: string[];
+  isMarketingRelated?: boolean;
   count?: string;
   hasIncapable?: boolean;
+  processingMethod?: 'automated' | 'non_automated' | 'mixed' | string;
+  employeesInvolved?: string[];
+  employees?: string | string[];
+  pdSourceType?: string;
+  sourceSubjects?: SourceSubjectEntry[];
+  collectionMethods?: string[];
   sources?: string[];
+  processedDataSubjects?: ProcessedDataSubjectEntry[];
   pdCategories?: string[];
+  pdActions?: string[];
+  customPdActions?: string | string[];
+  legalBases?: string[];
+  legalBasisLinks?: Record<string, string[]>;
+  legalBasisFiles?: Record<string, string[]>;
   specialCategories?: boolean;
+  specialCategoriesChoice?: 'process' | 'not_process';
   biometric?: boolean;
+  biometricChoice?: 'process' | 'not_process';
+  automatedDecisions?: 'produced' | 'not_produced';
   consentRequired?: boolean;
   legalBasis?: string;
   actions?: string[];
+  noRetentionPeriodSet?: boolean;
+  retentionUntilDate?: string;
+  retentionUntilEvent?: string;
   retentionPeriod?: string;
-  thirdParties?: string[];
+  paperDocumentsCreated?: 'created' | 'not_created';
+  paperDocuments?: PaperDocumentEntry[];
+  lnaStorageAccessEstablished?: boolean;
+  carriersStoredSeparately?: boolean;
+  carriersStoredSeparatelyChoice?: 'yes' | 'no';
+  informationSystemsUsage?: 'used' | 'not_used' | 'no_data';
+  informationSystems?: string[];
+  systems?: string | string[];
+  thirdPartyTransfer?: 'transferred' | 'not_transferred' | 'received' | 'both';
+  thirdPartyEntries?: ThirdPartyEntry[];
+  thirdParties?: string | string[];
+  additionalInfo?: string;
+  additionalNotes?: string;
+  additionalInfoLinks?: string[];
+  additionalInfoFiles?: string[];
   [key: string]: unknown;
 }
 
@@ -43,6 +110,7 @@ export interface Company {
   pdStartDate: string;
   isOperator: boolean;
   hasCrossBorder: boolean;
+  hasDirectories?: boolean;
   contactEmail: string;
   offices: { name: string; address: string }[];
   sites: { name: string; url: string }[];
@@ -71,6 +139,7 @@ export interface Process {
   status: string;
   sentTo: string;
   sentAt: string;
+  anketaType?: string;
   sections: Record<number, ProcessSection>;
 }
 
@@ -100,6 +169,12 @@ export interface JournalEntry {
   content: string;
   answer: string;
   status: string;
+  hasContentFile?: boolean;
+  hasAnswerFile?: boolean;
+  contentFileName?: string | null;
+  answerFileName?: string | null;
+  additionalFiles?: { name: string; index: number }[];
+  displayStatus?: string;
 }
 
 export interface MonitorEvent {
@@ -117,6 +192,9 @@ export interface Document {
   companyId: number;
   name: string;
   type: string;
+  filePath?: string | null;
+  uploadDate?: string;
+  hasFile?: boolean;
 }
 
 export interface AppState {
@@ -139,10 +217,25 @@ export type AppAction =
   | { type: 'ADD_PROCESS'; companyId: number; name?: string }
   | { type: 'ADD_PROCESS_FROM_API'; process: Process }
   | { type: 'REPLACE_PROCESS'; process: Process }
-  | { type: 'ADD_JOURNAL'; entry?: Partial<JournalEntry>; formData?: FormData }
+  | { type: 'ADD_JOURNAL'; formData: FormData }
   | { type: 'ADD_JOURNAL_FROM_API'; entry: JournalEntry }
   | { type: 'UPDATE_JOURNAL'; id: number; data: Partial<JournalEntry> }
+  | { type: 'REPLACE_JOURNAL_ENTRY'; entry: JournalEntry }
+  | { type: 'SET_RKN_NOTIFICATIONS'; items: RknNotification[] }
   | { type: 'MARK_READ'; id: number }
+  | { type: 'ADD_MONITOR'; data: { companyId: number; eventDate?: string; eventType: string; oldValue?: string; newValue?: string } }
+  | { type: 'ADD_MONITOR_FROM_API'; event: MonitorEvent }
+  | { type: 'SYNC_COMPANY_DADATA'; id: number; query?: string }
+  | { type: 'PREPEND_MONITOR_EVENTS'; events: MonitorEvent[] }
+  | { type: 'PATCH_COMPANIES'; companies: Company[] }
+  | { type: 'ADD_COMPANY_DADATA'; query: string }
+  | { type: 'ADD_COMPANY_FROM_API'; company: Company; rknNotification: RknNotification }
+  | { type: 'DELETE_COMPANY'; id: number }
+  | { type: 'REMOVE_COMPANY'; id: number }
+  | { type: 'ADD_DOCUMENT'; formData: FormData }
+  | { type: 'ADD_DOCUMENT_FROM_API'; document: Document }
+  | { type: 'DELETE_DOCUMENT'; id: number }
+  | { type: 'REMOVE_DOCUMENT'; id: number }
   | { type: 'SAVE_PROCESS_SECTION'; processId: number; section: number; status: string; data: SectionData };
 
 export type DispatchFn = (action: AppAction) => void | Promise<void>;
