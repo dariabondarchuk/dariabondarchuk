@@ -3,9 +3,11 @@ import {
   Button,
   Card,
   Col,
+  DatePicker,
   Form,
   Input,
   Modal,
+  Popconfirm,
   Row,
   Space,
   Statistic,
@@ -16,9 +18,9 @@ import {
   message,
 } from 'antd';
 import {
-  CloudDownloadOutlined,
   DeleteOutlined,
   DownloadOutlined,
+  EditOutlined,
   FileOutlined,
   FileZipOutlined,
   InboxOutlined,
@@ -26,12 +28,13 @@ import {
   UploadOutlined,
 } from '@ant-design/icons';
 import type { UploadFile } from 'antd';
+import dayjs from 'dayjs';
 import { useApp } from '../context/AppContext';
 import { StatusBadge } from '../components/StatusBadge';
-import DadataLookup from '../components/DadataLookup';
 import CompanySearchSelect from '../components/CompanySearchSelect';
 import { apiActions } from '../api/client';
 import { downloadBlob } from '../utils/downloadBlob';
+import { getRknDisplayStatus } from '../utils/rknStatus';
 import type { RknNotification, RknFile } from '../types';
 
 const { Title, Text } = Typography;
@@ -41,13 +44,16 @@ export default function RknPage() {
   const { state, dispatch } = useApp();
   const [search, setSearch] = useState('');
   const [showFiles, setShowFiles] = useState<RknNotification | null>(null);
-  const [syncCompanyId, setSyncCompanyId] = useState<number | null>(null);
-  const [syncingId, setSyncingId] = useState<number | null>(null);
   const [uploading, setUploading] = useState(false);
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [addOpen, setAddOpen] = useState(false);
   const [addCompanyId, setAddCompanyId] = useState<number | undefined>();
   const [adding, setAdding] = useState(false);
+  const [editRecord, setEditRecord] = useState<RknNotification | null>(null);
+  const [editSubmit, setEditSubmit] = useState<dayjs.Dayjs | null>(null);
+  const [editChange, setEditChange] = useState<dayjs.Dayjs | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const companiesAvailableForRkn = useMemo(
     () => state.companies.filter(
@@ -63,33 +69,12 @@ export default function RknPage() {
     const hay = `${comp?.name ?? ''} ${comp?.shortName ?? ''} ${comp?.inn ?? ''}`.toLowerCase();
     return hay.includes(q);
   });
-  const submitted = notifications.filter(n => n.status === 'submitted').length;
+  const submitted = notifications.filter(n => getRknDisplayStatus(n) === 'submitted').length;
 
   const refreshRkn = async () => {
     const { data } = await apiActions.getRknNotifications();
     dispatch({ type: 'SET_RKN_NOTIFICATIONS', items: data as RknNotification[] });
     return data as RknNotification[];
-  };
-
-  const syncFromDadata = async (companyId: number, query?: string) => {
-    setSyncingId(companyId);
-    try {
-      await dispatch({ type: 'SYNC_COMPANY_DADATA', id: companyId, query });
-      const comp = state.companies.find(c => c.id === companyId);
-      message.success(`Реквизиты «${comp?.shortName || comp?.name || 'компании'}» обновлены из DaData`);
-      setSyncCompanyId(null);
-    } catch (err) {
-      const msg = err && typeof err === 'object' && 'response' in err
-        ? (err as { response?: { data?: { error?: string } } }).response?.data?.error
-        : undefined;
-      message.error(
-        msg?.includes('SUGGESTIONS')
-          ? 'DaData: для токена не подключены «Подсказки». Включите API в личном кабинете dadata.ru'
-          : (msg || 'Не удалось обновить данные из DaData'),
-      );
-    } finally {
-      setSyncingId(null);
-    }
   };
 
   const closeFilesModal = () => {
@@ -111,9 +96,10 @@ export default function RknPage() {
     try {
       const fd = new FormData();
       fd.append('file', fileList[0].originFileObj);
-      await apiActions.uploadRknDocument(showFiles.id, fd);
+      const { data } = await apiActions.uploadRknDocument(showFiles.id, fd);
       const items = await refreshRkn();
-      const updated = items.find(n => n.id === showFiles.id);
+      const updated = (data as { notification?: RknNotification }).notification
+        ?? items.find(n => n.id === showFiles.id);
       if (updated) setShowFiles(updated);
       setFileList([]);
       message.success('Документ загружен');
@@ -137,9 +123,10 @@ export default function RknPage() {
   const deleteFile = async (file: RknFile) => {
     if (!showFiles || !file.id) return;
     try {
-      await apiActions.deleteRknDocument(showFiles.id, file.id);
+      const { data } = await apiActions.deleteRknDocument(showFiles.id, file.id);
       const items = await refreshRkn();
-      const updated = items.find(n => n.id === showFiles.id);
+      const updated = (data as { notification?: RknNotification }).notification
+        ?? items.find(n => n.id === showFiles.id);
       if (updated) setShowFiles(updated);
       message.success('Документ удалён');
     } catch {
@@ -181,6 +168,51 @@ export default function RknPage() {
     }
   };
 
+  const openEdit = (record: RknNotification) => {
+    setEditRecord(record);
+    setEditSubmit(record.dateSubmit ? dayjs(record.dateSubmit, 'DD.MM.YYYY') : null);
+    setEditChange(record.dateChange ? dayjs(record.dateChange, 'DD.MM.YYYY') : null);
+  };
+
+  const saveEdit = async () => {
+    if (!editRecord) return;
+    setSavingEdit(true);
+    try {
+      await apiActions.updateRknNotification(editRecord.id, {
+        dateSubmit: editSubmit ? editSubmit.format('DD.MM.YYYY') : null,
+        dateChange: editChange ? editChange.format('DD.MM.YYYY') : null,
+      });
+      const items = await refreshRkn();
+      const updated = items.find(n => n.id === editRecord.id);
+      if (showFiles?.id === editRecord.id && updated) {
+        setShowFiles(updated);
+      }
+      setEditRecord(null);
+      message.success('Запись обновлена');
+    } catch {
+      message.error('Не удалось сохранить изменения');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const deleteNotification = async (record: RknNotification) => {
+    setDeletingId(record.id);
+    try {
+      await apiActions.deleteRknNotification(record.id);
+      dispatch({
+        type: 'SET_RKN_NOTIFICATIONS',
+        items: state.rknNotifications.filter(n => n.id !== record.id),
+      });
+      if (showFiles?.id === record.id) closeFilesModal();
+      message.success('Уведомление удалено из реестра');
+    } catch {
+      message.error('Не удалось удалить уведомление');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const downloadArchive = async () => {
     if (!showFiles) return;
     try {
@@ -214,9 +246,11 @@ export default function RknPage() {
     { title: 'Дата изменений', dataIndex: 'dateChange', key: 'dateChange', render: (v: string) => v || '—' },
     {
       title: 'Статус',
-      dataIndex: 'status',
       key: 'status',
-      render: (status: string) => <StatusBadge status={status} />,
+      width: 120,
+      render: (_: unknown, record: RknNotification) => (
+        <StatusBadge status={getRknDisplayStatus(record)} />
+      ),
     },
     {
       title: 'Документы',
@@ -248,27 +282,36 @@ export default function RknPage() {
     },
     {
       title: '',
-      key: 'dadata',
-      width: 150,
-      render: (_: unknown, record: RknNotification) => {
-        const comp = state.companies.find(c => c.id === record.companyId);
-        return (
+      key: 'actions',
+      width: 88,
+      render: (_: unknown, record: RknNotification) => (
+        <Space size={0}>
           <Button
+            type="text"
             size="small"
-            icon={<CloudDownloadOutlined />}
-            loading={syncingId === record.companyId}
-            onClick={() => {
-              if (comp?.inn || comp?.ogrn) {
-                syncFromDadata(record.companyId);
-              } else {
-                setSyncCompanyId(record.companyId);
-              }
-            }}
+            icon={<EditOutlined />}
+            title="Изменить"
+            onClick={() => openEdit(record)}
+          />
+          <Popconfirm
+            title="Удалить уведомление?"
+            description="Компания останется в реестре, запись РКН будет удалена вместе с документами."
+            okText="Удалить"
+            cancelText="Отмена"
+            okButtonProps={{ danger: true }}
+            onConfirm={() => deleteNotification(record)}
           >
-            DaData
-          </Button>
-        );
-      },
+            <Button
+              type="text"
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+              title="Удалить"
+              loading={deletingId === record.id}
+            />
+          </Popconfirm>
+        </Space>
+      ),
     },
   ];
 
@@ -298,8 +341,6 @@ export default function RknPage() {
       <Button type="text" danger icon={<DeleteOutlined />} title="Удалить" onClick={() => deleteFile(f)} />
     </div>
   );
-
-  const syncCompany = syncCompanyId ? state.companies.find(c => c.id === syncCompanyId) : null;
 
   return (
     <div>
@@ -376,20 +417,47 @@ export default function RknPage() {
       </Modal>
 
       <Modal
-        title={`Загрузка из DaData: ${syncCompany?.shortName || syncCompany?.name || ''}`}
-        open={!!syncCompanyId}
-        onCancel={() => setSyncCompanyId(null)}
-        footer={null}
+        title="Изменить уведомление"
+        open={!!editRecord}
+        onCancel={() => setEditRecord(null)}
+        onOk={saveEdit}
+        okText="Сохранить"
+        cancelText="Отмена"
+        confirmLoading={savingEdit}
         destroyOnClose
       >
-        <DadataLookup
-          buttonText="Найти и обновить"
-          hint="Укажите ИНН или ОГРН для обновления реквизитов компании"
-          onLoaded={async data => {
-            if (!syncCompanyId) return;
-            await syncFromDadata(syncCompanyId, data.inn || data.ogrn);
-          }}
-        />
+        {editRecord && (
+          <Form layout="vertical">
+            <Form.Item label="Компания">
+              <Input
+                disabled
+                value={state.companies.find(c => c.id === editRecord.companyId)?.name ?? ''}
+              />
+            </Form.Item>
+            <Form.Item label="Дата подачи">
+              <DatePicker
+                style={{ width: '100%' }}
+                format="DD.MM.YYYY"
+                value={editSubmit}
+                onChange={setEditSubmit}
+                allowClear
+              />
+            </Form.Item>
+            <Form.Item label="Дата изменений">
+              <DatePicker
+                style={{ width: '100%' }}
+                format="DD.MM.YYYY"
+                value={editChange}
+                onChange={setEditChange}
+                allowClear
+              />
+            </Form.Item>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              Статус: {getRknDisplayStatus(editRecord) === 'submitted' ? 'Подано' : 'Не подано'}
+              {' '}(определяется по наличию загруженного документа)
+            </Text>
+          </Form>
+        )}
       </Modal>
 
       <Modal

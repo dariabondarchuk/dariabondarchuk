@@ -103,6 +103,9 @@ export const apiActions = {
   getRknNotifications: () => api.get('/rkn'),
   createRknNotification: (companyId: number) =>
     api.post(`/companies/${companyId}/rkn-notification`),
+  updateRknNotification: (id: number, data: { dateSubmit?: string | null; dateChange?: string | null }) =>
+    api.put(`/rkn/${id}`, data),
+  deleteRknNotification: (id: number) => api.delete(`/rkn/${id}`),
   uploadRknDocument: (notificationId: number, formData: FormData) =>
     postFormData(`/rkn/${notificationId}/documents`, formData),
   downloadRknDocument: (notificationId: number, docId: number) =>

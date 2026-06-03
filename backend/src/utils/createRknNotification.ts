@@ -14,7 +14,7 @@ export function mapRknNotificationRow(n: {
     companyId: n.companyId,
     dateSubmit: formatDate(n.submitDate),
     dateChange: formatDate(n.changeDate),
-    status: n.status === 'SUBMITTED' ? 'submitted' : n.status === 'NOT_SUBMITTED' ? 'not_submitted' : 'needs_update',
+    status: n.documents.length > 0 ? 'submitted' : 'not_submitted',
     files: n.documents.map(d => ({
       id: d.id,
       name: d.fileName,
