@@ -5,6 +5,7 @@ import { prisma } from '../utils/prisma';
 import { AuthRequest, authMiddleware } from '../middleware/auth';
 import { fromClientProcessStatus, fromClientSectionStatus, mapProcess, writeAudit } from '../utils/helpers';
 import { applyAnketaDataToCompany } from '../utils/applyAnketaData';
+import { applyProcessAnketaPrefill } from '../utils/processPrefillFromAnkety';
 
 const router = Router();
 
@@ -22,20 +23,27 @@ const SECTION_NAMES: Record<number, string> = {
 
 router.get('/', authMiddleware, async (req, res) => {
   const companyId = req.query.companyId ? Number(req.query.companyId) : undefined;
+  const isCorporate = req.query.isCorporate === 'true';
   const processes = await prisma.process.findMany({
-    where: companyId ? { companyId } : undefined,
+    where: isCorporate
+      ? { isCorporate: true }
+      : companyId
+        ? { companyId, isCorporate: false }
+        : undefined,
     include: { sections: { orderBy: { sectionNumber: 'asc' } } },
     orderBy: { id: 'asc' },
   });
   res.json(processes.map(p => mapProcess(p as unknown as Record<string, unknown> & { sections?: Array<Record<string, unknown>> })));
 });
 
-router.post('/', authMiddleware, async (req: AuthRequest, res) => {
-  const { companyId, name } = req.body as { companyId: number; name?: string };
-  const process = await prisma.process.create({
+async function createProcessRecord(
+  data: { companyId: number | null; isCorporate: boolean; name?: string },
+) {
+  return prisma.process.create({
     data: {
-      companyId: Number(companyId),
-      name: name || 'Новый процесс',
+      companyId: data.companyId,
+      isCorporate: data.isCorporate,
+      name: data.name || 'Новый процесс',
       tags: [],
       status: ProcessStatus.NOT_SENT,
       sections: {
@@ -49,8 +57,64 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
     },
     include: { sections: true },
   });
+}
+
+async function respondCreatedProcess(
+  req: AuthRequest,
+  res: import('express').Response,
+  process: Awaited<ReturnType<typeof createProcessRecord>>,
+) {
   await writeAudit(req.userId, 'Process', process.id, 'CREATE', { name: process.name }, req.ip);
-  res.status(201).json(mapProcess(process as unknown as Record<string, unknown> & { sections?: Array<Record<string, unknown>> }));
+
+  let prefilled = process;
+  let appliedSections: number[] = [];
+  try {
+    const prefillResult = await applyProcessAnketaPrefill(process.id);
+    prefilled = prefillResult.process ?? process;
+    appliedSections = prefillResult.appliedSections;
+  } catch (err) {
+    console.error('[process-create prefill]', err);
+  }
+
+  const mapped = mapProcess(
+    prefilled as unknown as Record<string, unknown> & { sections?: Array<Record<string, unknown>> },
+  );
+  res.status(201).json({ ...mapped, prefillAppliedSections: appliedSections });
+}
+
+router.post('/corporate', authMiddleware, async (req: AuthRequest, res) => {
+  const body = req.body as { name?: string };
+  try {
+    const process = await createProcessRecord({
+      companyId: null,
+      isCorporate: true,
+      name: body.name,
+    });
+    await respondCreatedProcess(req, res, process);
+  } catch (err) {
+    console.error('[process-create corporate]', err);
+    res.status(500).json({ error: 'Не удалось создать общекорпоративный процесс' });
+  }
+});
+
+router.post('/', authMiddleware, async (req: AuthRequest, res) => {
+  const body = req.body as { companyId?: number | null; name?: string; isCorporate?: boolean };
+  const isCorporate = body.isCorporate === true;
+  if (!isCorporate && (body.companyId == null || Number.isNaN(Number(body.companyId)))) {
+    return res.status(400).json({ error: 'Укажите компанию для процесса' });
+  }
+
+  try {
+    const process = await createProcessRecord({
+      companyId: isCorporate ? null : Number(body.companyId),
+      isCorporate,
+      name: body.name,
+    });
+    await respondCreatedProcess(req, res, process);
+  } catch (err) {
+    console.error('[process-create]', err);
+    res.status(500).json({ error: 'Не удалось создать процесс' });
+  }
 });
 
 router.put('/:id', authMiddleware, async (req: AuthRequest, res) => {
@@ -139,6 +203,23 @@ router.post('/:id/invite', authMiddleware, async (req: AuthRequest, res) => {
   });
 });
 
+router.post('/:id/prefill-from-ankety', authMiddleware, async (req: AuthRequest, res) => {
+  const id = Number(req.params.id);
+  const existing = await prisma.process.findUnique({ where: { id } });
+  if (!existing) return res.status(404).json({ error: 'Not found' });
+  if (existing.anketaType) {
+    return res.status(400).json({ error: 'Подстановка доступна только для процессов обработки ПДн' });
+  }
+
+  const { process, appliedSections } = await applyProcessAnketaPrefill(id);
+  if (!process) return res.status(404).json({ error: 'Not found' });
+
+  await writeAudit(req.userId, 'Process', id, 'PREFILL_FROM_ANKETY', { appliedSections }, req.ip);
+
+  const mapped = mapProcess(process as unknown as Record<string, unknown> & { sections?: Array<Record<string, unknown>> });
+  res.json({ ...mapped, prefillAppliedSections: appliedSections });
+});
+
 router.post('/:id/verify', authMiddleware, async (req: AuthRequest, res) => {
   const id = Number(req.params.id);
   const existing = await prisma.process.findUnique({
@@ -151,7 +232,7 @@ router.post('/:id/verify', authMiddleware, async (req: AuthRequest, res) => {
   }
 
   const sectionData = existing.sections[0]?.data as Record<string, unknown> | undefined;
-  if (existing.anketaType && sectionData) {
+  if (existing.anketaType && sectionData && existing.companyId != null) {
     await applyAnketaDataToCompany(existing.companyId, existing.anketaType, sectionData);
   }
 
@@ -162,6 +243,23 @@ router.post('/:id/verify', authMiddleware, async (req: AuthRequest, res) => {
   });
   await writeAudit(req.userId, 'Process', id, 'VERIFY', { status: 'VERIFIED', anketaType: existing.anketaType }, req.ip);
   res.json(mapProcess(updated as unknown as Record<string, unknown> & { sections?: Array<Record<string, unknown>> }));
+});
+
+router.delete('/:id', authMiddleware, async (req: AuthRequest, res) => {
+  const id = Number(req.params.id);
+  const existing = await prisma.process.findUnique({ where: { id } });
+  if (!existing) return res.status(404).json({ error: 'Процесс не найден' });
+  if (existing.anketaType) {
+    return res.status(400).json({ error: 'Анкету удаляйте в разделе «Анкеты»' });
+  }
+
+  await prisma.process.delete({ where: { id } });
+  await writeAudit(req.userId, 'Process', id, 'DELETE', {
+    name: existing.name,
+    companyId: existing.companyId,
+    isCorporate: existing.isCorporate,
+  }, req.ip);
+  res.json({ ok: true });
 });
 
 export default router;

@@ -25,9 +25,16 @@ export async function syncAction(action: AppAction, dispatch: Dispatch<AppAction
     }
 
     case 'ADD_PROCESS': {
-      const { data } = await apiActions.addProcess(action.companyId, action.name);
-      dispatch({ type: 'ADD_PROCESS_FROM_API', process: data as Process });
-      return;
+      const { data } = action.isCorporate
+        ? await apiActions.addCorporateProcess(action.name)
+        : await apiActions.addProcess({
+            companyId: action.companyId,
+            name: action.name,
+            isCorporate: false,
+          });
+      const process = data as Process & { prefillAppliedSections?: number[] };
+      dispatch({ type: 'ADD_PROCESS_FROM_API', process });
+      return process;
     }
 
     case 'ADD_JOURNAL': {
@@ -79,6 +86,12 @@ export async function syncAction(action: AppAction, dispatch: Dispatch<AppAction
     case 'DELETE_COMPANY': {
       await apiActions.deleteCompany(action.id);
       dispatch({ type: 'REMOVE_COMPANY', id: action.id });
+      return;
+    }
+
+    case 'DELETE_PROCESS': {
+      await apiActions.deleteProcess(action.id);
+      dispatch({ type: 'REMOVE_PROCESS', id: action.id });
       return;
     }
 

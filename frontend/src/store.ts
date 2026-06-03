@@ -48,6 +48,8 @@ export function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, processes: [...state.processes, action.process] };
     case 'REPLACE_PROCESS':
       return { ...state, processes: state.processes.map(p => p.id === action.process.id ? action.process : p) };
+    case 'REMOVE_PROCESS':
+      return { ...state, processes: state.processes.filter(p => p.id !== action.id) };
     case 'ADD_JOURNAL_FROM_API':
       return { ...state, journalEntries: [...state.journalEntries, action.entry] };
     case 'UPDATE_JOURNAL':

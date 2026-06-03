@@ -1,5 +1,7 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from './prisma';
 import { formatDate } from './helpers';
+import { findPartyByQuery } from './dadata';
 import type { CompanyDadataPatch } from './dadata';
 
 export interface CompanyDadataSnapshot {
@@ -93,6 +95,12 @@ export function detectDadataChanges(
 
   const oldCeo = fmtCeo(before.ceoName, before.ceoPosition);
   const newCeo = fmtCeo(after.ceoName, after.ceoPosition);
+  const oldName = before.shortName || before.name;
+  const newName = after.shortName || after.name;
+  if (oldName && newName && oldName !== newName) {
+    events.push({ eventType: 'name_change', oldValue: oldName, newValue: newName });
+  }
+
   if (oldCeo && newCeo && oldCeo !== newCeo) {
     events.push({ eventType: 'ceo_change', oldValue: oldCeo, newValue: newCeo });
   }
@@ -107,6 +115,10 @@ export function detectDadataChanges(
     events.push({ eventType: 'okved_change', oldValue: before.okved, newValue: after.okved });
   }
 
+  if (before.ogrn && after.ogrn && before.ogrn !== after.ogrn) {
+    events.push({ eventType: 'ogrn_change', oldValue: before.ogrn, newValue: after.ogrn });
+  }
+
   const oldContact = fmtContacts(before.phone, before.email);
   const newContact = fmtContacts(after.phone, after.email);
   if (oldContact && newContact && oldContact !== newContact) {
@@ -114,6 +126,84 @@ export function detectDadataChanges(
   }
 
   return events;
+}
+
+export function egrulSnapshotToJson(snapshot: CompanyDadataSnapshot): Prisma.InputJsonValue {
+  return snapshot as unknown as Prisma.InputJsonValue;
+}
+
+export function parseEgrulSnapshot(raw: unknown): CompanyDadataSnapshot | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const o = raw as Record<string, unknown>;
+  const inn = norm(String(o.inn ?? ''));
+  if (!inn) return null;
+  return {
+    name: norm(String(o.name ?? '')),
+    shortName: norm(String(o.shortName ?? '')),
+    inn,
+    ogrn: norm(String(o.ogrn ?? '')),
+    okved: norm(String(o.okved ?? '')),
+    ceoName: norm(String(o.ceoName ?? '')),
+    ceoPosition: norm(String(o.ceoPosition ?? '')),
+    phone: norm(String(o.phone ?? '')),
+    email: norm(String(o.email ?? '')),
+    legalAddress: norm(String(o.legalAddress ?? '')),
+    postalAddress: norm(String(o.postalAddress ?? '')),
+    city: norm(String(o.city ?? '')),
+  };
+}
+
+type CompanyRow = {
+  id: number;
+  name: string;
+  shortName: string | null;
+  inn: string;
+  ogrn: string | null;
+  okved: string | null;
+  ceoName: string | null;
+  ceoPosition: string | null;
+  phone: string | null;
+  email: string | null;
+  legalAddress: string | null;
+  postalAddress: string | null;
+  city: string | null;
+  egrulSnapshot: unknown;
+};
+
+export async function checkCompanyEgrulFromDadata(company: CompanyRow) {
+  const query = company.inn?.trim() || company.ogrn?.trim();
+  if (!query) {
+    return { events: [] as ReturnType<typeof mapMonitorEventRow>[], baselined: false, skipped: true };
+  }
+
+  const patch = await findPartyByQuery({ query, branch_type: 'MAIN' });
+  const after = patchToSnapshot(patch);
+  const stored = parseEgrulSnapshot(company.egrulSnapshot);
+
+  if (!stored) {
+    await prisma.company.update({
+      where: { id: company.id },
+      data: { egrulSnapshot: egrulSnapshotToJson(after) },
+    });
+    return { events: [], baselined: true, skipped: false };
+  }
+
+  const changes = detectDadataChanges(stored, after);
+  if (!changes.length) {
+    return { events: [], baselined: false, skipped: false };
+  }
+
+  const beforeCompany = companyToSnapshot(company);
+  await prisma.company.update({
+    where: { id: company.id },
+    data: {
+      ...buildCompanyUpdateFromPatch(beforeCompany, patch),
+      egrulSnapshot: egrulSnapshotToJson(after),
+    },
+  });
+
+  const events = await createDadataMonitorEvents(company.id, changes);
+  return { events, baselined: false, skipped: false };
 }
 
 export function mapMonitorEventRow(e: {

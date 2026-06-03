@@ -1,6 +1,7 @@
 import axios from 'axios';
 import api from './client';
 import type { CompanyDadataPatch } from './dadata';
+import type { Company, Responsible } from '../types';
 
 const publicApi = axios.create({ baseURL: '/api/public' });
 
@@ -86,12 +87,39 @@ export async function verifyProcess(processId: number) {
   return { process: data };
 }
 
-export async function fetchAnketaStatuses(companyId: number) {
+export interface AnketaOverviewItem {
+  anketaType: string;
+  name: string;
+  rawStatus: string;
+  displayStatus: 'filled' | 'not_filled' | 'partial';
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export async function fetchAnketaOverview(companyId: number) {
   const { data } = await api.get(`/companies/${companyId}/anketa-statuses`);
-  return data as Record<string, string>;
+  return data as {
+    items: AnketaOverviewItem[];
+    statuses: Record<string, string>;
+  };
+}
+
+export async function updateAnketaLabel(companyId: number, anketaType: string, name: string) {
+  const { data } = await api.patch(`/companies/${companyId}/anketa/${anketaType}/label`, { name });
+  return data as Company;
 }
 
 export async function verifyCompanyAnketa(companyId: number, anketaType: string) {
   const { data } = await api.post(`/companies/${companyId}/anketa/${anketaType}/verify`);
   return data as { ok: boolean; status: string; processId: number };
+}
+
+export async function deleteCompanyAnketa(companyId: number, anketaType: string) {
+  const { data } = await api.delete(`/companies/${companyId}/anketa/${anketaType}`);
+  return data as {
+    company: Company;
+    responsible: Responsible | null;
+    items: AnketaOverviewItem[];
+    statuses: Record<string, string>;
+  };
 }

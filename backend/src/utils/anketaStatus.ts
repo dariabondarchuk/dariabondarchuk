@@ -26,7 +26,7 @@ interface ResponsibleLike {
 }
 
 interface ProcessLike {
-  companyId: number;
+  companyId: number | null;
   anketaType?: string;
   status: string;
   sections?: Record<number, { data?: Record<string, unknown> }>;

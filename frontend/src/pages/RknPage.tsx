@@ -1,14 +1,16 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Button,
   Card,
   Col,
+  Form,
   Input,
   Modal,
   Row,
   Space,
   Statistic,
   Table,
+  Tag,
   Typography,
   Upload,
   message,
@@ -20,12 +22,14 @@ import {
   FileOutlined,
   FileZipOutlined,
   InboxOutlined,
+  PlusOutlined,
   UploadOutlined,
 } from '@ant-design/icons';
 import type { UploadFile } from 'antd';
 import { useApp } from '../context/AppContext';
 import { StatusBadge } from '../components/StatusBadge';
 import DadataLookup from '../components/DadataLookup';
+import CompanySearchSelect from '../components/CompanySearchSelect';
 import { apiActions } from '../api/client';
 import { downloadBlob } from '../utils/downloadBlob';
 import type { RknNotification, RknFile } from '../types';
@@ -41,10 +45,23 @@ export default function RknPage() {
   const [syncingId, setSyncingId] = useState<number | null>(null);
   const [uploading, setUploading] = useState(false);
   const [fileList, setFileList] = useState<UploadFile[]>([]);
+  const [addOpen, setAddOpen] = useState(false);
+  const [addCompanyId, setAddCompanyId] = useState<number | undefined>();
+  const [adding, setAdding] = useState(false);
+
+  const companiesAvailableForRkn = useMemo(
+    () => state.companies.filter(
+      c => !state.rknNotifications.some(n => n.companyId === c.id),
+    ),
+    [state.companies, state.rknNotifications],
+  );
 
   const notifications = state.rknNotifications.filter(n => {
     const comp = state.companies.find(c => c.id === n.companyId);
-    return comp?.name.toLowerCase().includes(search.toLowerCase());
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    const hay = `${comp?.name ?? ''} ${comp?.shortName ?? ''} ${comp?.inn ?? ''}`.toLowerCase();
+    return hay.includes(q);
   });
   const submitted = notifications.filter(n => n.status === 'submitted').length;
 
@@ -130,6 +147,40 @@ export default function RknPage() {
     }
   };
 
+  const addNotification = async () => {
+    if (!addCompanyId) {
+      message.warning('Выберите компанию из реестра');
+      return;
+    }
+    setAdding(true);
+    try {
+      await apiActions.createRknNotification(addCompanyId);
+      const items = await refreshRkn();
+      const created = items.find(n => n.companyId === addCompanyId);
+      setAddOpen(false);
+      setAddCompanyId(undefined);
+      message.success('Уведомление добавлено в реестр');
+      if (created) openFiles(created);
+    } catch (err) {
+      const res = err && typeof err === 'object' && 'response' in err
+        ? (err as { response?: { data?: { error?: string; notificationId?: number }; status?: number } }).response
+        : undefined;
+      if (res?.status === 409) {
+        message.warning(res.data?.error || 'Уведомление для компании уже существует');
+        setAddOpen(false);
+        return;
+      }
+      const errText = res?.data?.error;
+      if (res?.status === 404 && errText === 'Not found') {
+        message.error('Сервер API устарел или не перезапущен. Перезапустите backend (порт 4000) и повторите.');
+        return;
+      }
+      message.error(errText || 'Не удалось добавить уведомление');
+    } finally {
+      setAdding(false);
+    }
+  };
+
   const downloadArchive = async () => {
     if (!showFiles) return;
     try {
@@ -170,14 +221,30 @@ export default function RknPage() {
     {
       title: 'Документы',
       key: 'files',
-      render: (_: unknown, record: RknNotification) =>
-        record.files.length ? (
-          <Button icon={<FileOutlined />} onClick={() => openFiles(record)}>
-            {record.files.length}
-          </Button>
-        ) : (
-          <Button type="link" size="small" onClick={() => openFiles(record)}>Загрузить</Button>
-        ),
+      width: 200,
+      render: (_: unknown, record: RknNotification) => {
+        const count = record.files.length;
+        const current = record.files.find(f => f.current);
+        const hasArchive = count > 1;
+        return (
+          <Space direction="vertical" size={4}>
+            <Button
+              type={count ? 'default' : 'link'}
+              size="small"
+              icon={<FileOutlined />}
+              onClick={() => openFiles(record)}
+            >
+              {count ? (hasArchive ? `${count} версии` : '1 документ') : 'Загрузить'}
+            </Button>
+            {current?.version != null && count > 0 && (
+              <Text type="secondary" style={{ fontSize: 11 }}>
+                Актуальная: v{current.version}
+                {hasArchive ? ' · есть архив' : ''}
+              </Text>
+            )}
+          </Space>
+        );
+      },
     },
     {
       title: '',
@@ -220,7 +287,12 @@ export default function RknPage() {
       }}
     >
       <FileOutlined />
-      <span style={{ flex: 1, fontSize: 12.5, fontWeight: current ? 550 : 400 }}>{f.name}</span>
+      <span style={{ flex: 1, fontSize: 12.5, fontWeight: current ? 550 : 400 }}>
+        {f.name}
+        {f.version != null && (
+          <Tag color={current ? 'green' : 'default'} style={{ marginLeft: 6 }}>v{f.version}</Tag>
+        )}
+      </span>
       <Text type="secondary" style={{ fontSize: 11 }}>{f.date}</Text>
       <Button type="text" icon={<DownloadOutlined />} title="Скачать" onClick={() => downloadFile(f)} />
       <Button type="text" danger icon={<DeleteOutlined />} title="Удалить" onClick={() => deleteFile(f)} />
@@ -246,15 +318,62 @@ export default function RknPage() {
         </Col>
       </Row>
       <Card>
-        <Input.Search
-          placeholder="Поиск..."
-          allowClear
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          style={{ width: 280, marginBottom: 16 }}
-        />
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, justifyContent: 'space-between' }}>
+          <Input.Search
+            placeholder="Поиск по компании, ИНН..."
+            allowClear
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ width: 280 }}
+          />
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => {
+              setAddCompanyId(undefined);
+              setAddOpen(true);
+            }}
+            disabled={!state.companies.length}
+          >
+            Добавить уведомление
+          </Button>
+        </div>
         <Table<RknNotification> rowKey="id" dataSource={notifications} columns={columns} pagination={false} size="middle" />
       </Card>
+
+      <Modal
+        title="Добавить уведомление"
+        open={addOpen}
+        onCancel={() => {
+          setAddOpen(false);
+          setAddCompanyId(undefined);
+        }}
+        onOk={companiesAvailableForRkn.length ? addNotification : undefined}
+        okText="Добавить"
+        cancelText="Отмена"
+        confirmLoading={adding}
+        okButtonProps={{ disabled: companiesAvailableForRkn.length === 0 }}
+        destroyOnClose
+      >
+        {companiesAvailableForRkn.length === 0 ? (
+          <Text type="secondary">
+            Для всех компаний из реестра уже созданы уведомления. Добавьте новую компанию в разделе «Компании».
+          </Text>
+        ) : (
+          <Form layout="vertical">
+            <Form.Item label="Компания" required>
+              <CompanySearchSelect
+                value={addCompanyId}
+                onChange={setAddCompanyId}
+                includeCompanyIds={companiesAvailableForRkn.map(c => c.id)}
+              />
+            </Form.Item>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              После добавления можно сразу загрузить файл уведомления. При повторной загрузке сохраняется новая версия, предыдущие остаются в архиве.
+            </Text>
+          </Form>
+        )}
+      </Modal>
 
       <Modal
         title={`Загрузка из DaData: ${syncCompany?.shortName || syncCompany?.name || ''}`}
@@ -309,7 +428,14 @@ export default function RknPage() {
             )}
 
             <div style={{ marginTop: 16 }}>
-              <Text strong style={{ display: 'block', marginBottom: 8 }}>Загрузить документ</Text>
+              <Text strong style={{ display: 'block', marginBottom: 8 }}>
+                {showFiles.files.length ? 'Загрузить новую версию (изменения)' : 'Загрузить уведомление'}
+              </Text>
+              {showFiles.files.length > 0 && (
+                <Text type="secondary" style={{ display: 'block', marginBottom: 8, fontSize: 12 }}>
+                  Текущий файл перейдёт в архив, актуальной станет новая загрузка. Дата изменений обновится автоматически.
+                </Text>
+              )}
               <Dragger
                 fileList={fileList}
                 beforeUpload={() => false}
@@ -326,7 +452,7 @@ export default function RknPage() {
                 onClick={handleUpload}
                 style={{ marginTop: 12 }}
               >
-                Загрузить
+                {showFiles.files.length ? 'Загрузить новую версию' : 'Загрузить'}
               </Button>
             </div>
 

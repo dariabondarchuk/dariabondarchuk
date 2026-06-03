@@ -56,7 +56,7 @@ router.get('/survey/:token', async (req, res) => {
   const p = invite.process;
   res.json({
     processName: p.name,
-    companyName: p.company.shortName || p.company.name,
+    companyName: p.company?.shortName || p.company?.name || 'Общекорпоративный процесс',
     comment: invite.comment,
     email: invite.email,
     sections: Object.fromEntries(
@@ -96,6 +96,13 @@ router.put('/survey/:token/sections/:sectionNumber', async (req, res) => {
       data: { status: ProcessStatus.FILLING },
     });
   }
+
+  await writeAudit(undefined, 'ProcessSection', section.id, 'UPDATE_SURVEY_SECTION', {
+    source: 'public_link',
+    processId: invite.processId,
+    sectionNumber,
+    email: invite.email,
+  });
 
   res.json({ ok: true });
 });
@@ -137,6 +144,12 @@ router.post('/survey/:token/submit', async (req, res) => {
   await prisma.processInvite.update({
     where: { id: invite.id },
     data: { submittedAt: new Date() },
+  });
+
+  await writeAudit(undefined, 'Process', invite.processId, 'SUBMIT_SURVEY', {
+    source: 'public_link',
+    email: invite.email,
+    processName: invite.process.name,
   });
 
   res.json({ ok: true, message: 'Анкета отправлена на проверку DPO' });

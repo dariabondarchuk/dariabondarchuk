@@ -11,6 +11,7 @@ import DocumentsPage from './pages/DocumentsPage';
 import SettingsPage from './pages/SettingsPage';
 import ProcessRegistryPage from './pages/ProcessRegistryPage';
 import ProcessesPage from './pages/ProcessesPage';
+import CorporateProcessesPage from './pages/CorporateProcessesPage';
 import PublicSurveyPage from './pages/PublicSurveyPage';
 import PublicAnketaPage from './pages/PublicAnketaPage';
 
@@ -34,6 +35,7 @@ export const router = createBrowserRouter([
       { path: 'ankety/:companyId', element: <LegacyAnketyRedirect /> },
       { path: 'processes/:companyId', element: <ProcessesPage /> },
       { path: 'processes', element: <ProcessesPage /> },
+      { path: 'corporate-processes', element: <CorporateProcessesPage /> },
       { path: 'process-registry', element: <ProcessRegistryPage /> },
       { path: 'registry', element: <Navigate to="/process-registry" replace /> },
       { path: 'rkn', element: <RknPage /> },

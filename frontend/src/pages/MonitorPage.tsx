@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Button,
   Card,
@@ -16,17 +16,22 @@ import {
   Typography,
   message,
 } from 'antd';
-import { CheckOutlined, PlusOutlined } from '@ant-design/icons';
+import { CheckOutlined, PlusOutlined, SyncOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useApp } from '../context/AppContext';
 import { EVENT_TYPES } from '../constants';
+import { runDadataEgrulCheck } from '../utils/dadataMonitor';
 import type { MonitorEvent } from '../types';
 
-const { Title } = Typography;
+const { Title, Paragraph } = Typography;
 
 const eventTagColor: Record<string, string> = {
+  name_change: 'purple',
   ceo_change: 'red',
   address_change: 'gold',
+  okved_change: 'blue',
+  ogrn_change: 'cyan',
+  contact_change: 'geekblue',
 };
 
 export default function MonitorPage() {
@@ -34,8 +39,27 @@ export default function MonitorPage() {
   const [search, setSearch] = useState('');
   const [addModal, setAddModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [checkingEgrul, setCheckingEgrul] = useState(false);
   const [form] = Form.useForm();
   const unread = state.monitorEvents.filter(e => !e.read).length;
+
+  const checkEgrul = async (silent = false) => {
+    setCheckingEgrul(true);
+    try {
+      await runDadataEgrulCheck(dispatch, { silent });
+    } catch {
+      message.error('Не удалось проверить изменения в ЕГРЮЛ через DaData');
+    } finally {
+      setCheckingEgrul(false);
+    }
+  };
+
+  useEffect(() => {
+    if (state.companies.length) {
+      void checkEgrul(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const events = state.monitorEvents.filter(e => {
     const comp = state.companies.find(c => c.id === e.companyId);
@@ -135,6 +159,9 @@ export default function MonitorPage() {
   return (
     <div>
       <Title level={3} style={{ marginTop: 0 }}>Уведомления</Title>
+      <Paragraph type="secondary" style={{ marginTop: -8, marginBottom: 14 }}>
+        Изменения в ЕГРЮЛ по компаниям из реестра подтягиваются из DaData при входе и по кнопке проверки.
+      </Paragraph>
       <Row gutter={10} style={{ marginBottom: 14 }}>
         <Col span={6}>
           <Card><Statistic title="Всего событий" value={state.monitorEvents.length} valueStyle={{ color: '#1677ff' }} /></Card>
@@ -158,9 +185,18 @@ export default function MonitorPage() {
       <Card>
         <Space style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between' }} wrap>
           <Input.Search placeholder="Поиск..." allowClear value={search} onChange={e => setSearch(e.target.value)} style={{ width: 280 }} />
-          <Button type="primary" icon={<PlusOutlined />} onClick={openAdd}>
-            Добавить
-          </Button>
+          <Space>
+            <Button
+              icon={<SyncOutlined />}
+              loading={checkingEgrul}
+              onClick={() => checkEgrul(false)}
+            >
+              Проверить ЕГРЮЛ
+            </Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={openAdd}>
+              Добавить
+            </Button>
+          </Space>
         </Space>
         <Table<MonitorEvent>
           rowKey="id"

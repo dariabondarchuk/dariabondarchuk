@@ -79,6 +79,7 @@ function toColumns<T extends { num: number }>(defs: ColDef<T>[]): ColumnsType<T>
 
 const PROCESS_COLS: ColDef<ProcessRegistryRow>[] = [
   { key: 'num', title: '№', width: 56 },
+  { key: 'companyName', title: 'Компания / тип', width: 200 },
   { key: 'processName', title: 'Название процесса', width: 220, render: r => processNameCell(r.processName) },
   { key: 'tags', title: 'Теги', width: 120 },
   { key: 'description', title: 'Описание процесса', width: 220 },
@@ -131,11 +132,16 @@ const PROCESS_COLS: ColDef<ProcessRegistryRow>[] = [
   { key: 'critical', title: 'Критический', width: 120 },
 ];
 
-export function getRegistryTableConfig(tab: RegistryTabKey, processes: Process[], company: Company) {
+export function getRegistryTableConfig(
+  tab: RegistryTabKey,
+  processes: Process[],
+  company: Company,
+  companiesById?: Map<number, Company>,
+) {
   switch (tab) {
     case 'processes':
       return {
-        rows: buildProcessRegistryRows(processes),
+        rows: buildProcessRegistryRows(processes, companiesById),
         columns: toColumns(PROCESS_COLS),
         columnKeys: PROCESS_COLS.map(c => String(c.key)),
       };

@@ -111,16 +111,17 @@ export default function CompaniesPage() {
     { title: 'ИНН', dataIndex: 'inn', key: 'inn', width: 140, render: (v: string) => v || '—' },
     { title: 'ОГРН', dataIndex: 'ogrn', key: 'ogrn', width: 160, render: (v: string) => v || '—' },
     { title: 'Сокращённое', dataIndex: 'shortName', key: 'shortName', width: 180 },
-    { title: 'Вид деятельности', dataIndex: 'activity', key: 'activity', render: (v: string | undefined) => v || '—' },
     {
       title: '',
       key: 'actions',
-      width: 200,
+      width: 100,
       render: (_: unknown, record: Company) => (
         <Space onClick={e => e.stopPropagation()}>
           <Button
             size="small"
+            type="text"
             icon={<CloudDownloadOutlined />}
+            title="Обновить из DaData"
             loading={syncingId === record.id}
             onClick={() => {
               if (record.inn || record.ogrn) {
@@ -129,9 +130,7 @@ export default function CompaniesPage() {
                 setSyncCompany(record);
               }
             }}
-          >
-            DaData
-          </Button>
+          />
           <Popconfirm
             title="Удалить компанию?"
             description={`«${record.shortName || record.name}» и все связанные данные будут удалены.`}
@@ -172,7 +171,7 @@ export default function CompaniesPage() {
       </Card>
 
       <Modal
-        title="Добавить компанию через DaData"
+        title="Добавить компанию из ЕГРЮЛ (через DaData)"
         open={addOpen}
         onCancel={closeAddModal}
         footer={null}

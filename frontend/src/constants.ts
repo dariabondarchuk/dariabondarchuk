@@ -39,9 +39,11 @@ export const SECTION_NAMES: Record<number, string> = {
 };
 
 export const EVENT_TYPES: Record<string, string> = {
+  name_change: 'Изменение наименования',
   ceo_change: 'Смена ген. директора',
   address_change: 'Изменение юр. адреса',
   okved_change: 'Изменение ОКВЭД',
+  ogrn_change: 'Изменение ОГРН',
   kpp_change: 'Изменение КПП',
   contact_change: 'Изменение контактов',
 };

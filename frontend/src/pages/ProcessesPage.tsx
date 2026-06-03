@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Breadcrumb, Button, Card, Select, Typography } from 'antd';
+import { Breadcrumb, Button, Card, Typography } from 'antd';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import CompanyProcessesPanel from '../components/CompanyProcessesPanel';
+import CompanySearchSelect from '../components/CompanySearchSelect';
 
 const { Title, Text } = Typography;
+
+const PANEL_TITLE = 'Процессы обработки ПДн в конкретных компаниях';
 
 export default function ProcessesPage() {
   const { companyId: companyIdParam } = useParams<{ companyId?: string }>();
@@ -37,7 +40,7 @@ export default function ProcessesPage() {
   if (!state.companies.length) {
     return (
       <div>
-        <Title level={3} style={{ marginTop: 0 }}>Процессы</Title>
+        <Title level={3} style={{ marginTop: 0 }}>Процессы компаний</Title>
         <Card>
           <Text type="secondary">Сначала добавьте компанию в разделе «Компании».</Text>
           <div style={{ marginTop: 12 }}>
@@ -54,29 +57,28 @@ export default function ProcessesPage() {
         items={[
           { title: <span style={{ cursor: 'pointer' }} onClick={() => navigate('/companies')}>Компании</span> },
           ...(company ? [{ title: company.shortName || company.name }] : []),
-          { title: 'Процессы' },
+          { title: 'Процессы компаний' },
         ]}
         style={{ marginBottom: 8 }}
       />
-      <Title level={3} style={{ marginTop: 0 }}>Процессы обработки ПДн</Title>
+      <Title level={3} style={{ marginTop: 0 }}>{PANEL_TITLE}</Title>
       <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-        Список процессов компании, заполнение анкет по секциям, отправка ссылок и проверка данных.
+        Список процессов в конкретных компаниях группы.
       </Text>
 
-      <Card style={{ marginBottom: 16 }}>
+      <div style={{ marginBottom: 16 }}>
         <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>Компания</Text>
-        <Select
+        <CompanySearchSelect
           value={selectedCompanyId ?? undefined}
-          onChange={onCompanyChange}
-          style={{ minWidth: 320 }}
-          options={state.companies.map(c => ({
-            value: c.id,
-            label: c.shortName || c.name,
-          }))}
+          onChange={id => {
+            if (id != null) onCompanyChange(id);
+          }}
         />
-      </Card>
+      </div>
 
-      {selectedCompanyId != null && <CompanyProcessesPanel companyId={selectedCompanyId} />}
+      {selectedCompanyId != null && (
+        <CompanyProcessesPanel companyId={selectedCompanyId} panelTitle={null} />
+      )}
     </div>
   );
 }

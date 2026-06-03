@@ -8,6 +8,7 @@ import {
   Form,
   Input,
   Modal,
+  Popconfirm,
   Row,
   Select,
   Space,
@@ -15,16 +16,26 @@ import {
   Typography,
   message,
 } from 'antd';
+import { DeleteOutlined, SendOutlined } from '@ant-design/icons';
+import { AnketaInviteModal, AnketaSendAllModal } from './AnketaInviteModals';
 import dayjs from 'dayjs';
 import { useApp } from '../context/AppContext';
-import { StatusBadge } from '../components/StatusBadge';
 import api from '../api/client';
-import { fetchAnketaStatuses, verifyCompanyAnketa } from '../api/publicAnketa';
+import {
+  deleteCompanyAnketa,
+  fetchAnketaOverview,
+  updateAnketaLabel,
+  verifyCompanyAnketa,
+  type AnketaOverviewItem,
+} from '../api/publicAnketa';
 import type { Process } from '../types';
 import AnketaFormFooter from './AnketaFormFooter';
 import type { AnketaTemplateType } from '../constants/anketaTemplates';
 import { ANKETA_TEMPLATES } from '../constants/anketaTemplates';
-import { ANKETA_STATUS_HINTS } from '../constants/pdnDocuments';
+import {
+  getAnketaStatusLabel,
+  formatAnketaDate,
+} from '../utils/anketaDisplay';
 import AnketaSummaryView from './AnketaSummaryView';
 import SitesAnketaFormFields, {
   companyToSitesAnketaValues,
@@ -39,6 +50,12 @@ import DepartmentsAnketaFormFields, {
 import type { Company, Responsible } from '../types';
 
 const { Text } = Typography;
+
+function getAnketaActionLabel(status: string): string {
+  if (status === 'not_filled' || status === 'sent' || status === 'filling') return 'Заполнить';
+  if (status === 'verified') return 'Изменить';
+  return 'Проверить';
+}
 
 const ACTIVITIES = ['Строительство', 'IT', 'Финансы', 'Торговля'];
 
@@ -63,31 +80,41 @@ export default function CompanyAnketyPanel({ companyId }: CompanyAnketyPanelProp
   const [respForm] = Form.useForm();
   const [sitesForm] = Form.useForm<SitesAnketaValues>();
   const [departmentsForm] = Form.useForm<DepartmentsAnketaValues>();
-  const [anketaStatuses, setAnketaStatuses] = useState<Record<string, string>>({});
+  const [anketaItems, setAnketaItems] = useState<AnketaOverviewItem[]>([]);
   const [editingAnketaType, setEditingAnketaType] = useState<AnketaTemplateType | null>(null);
   const [markVerified, setMarkVerified] = useState(false);
+  const [renameTarget, setRenameTarget] = useState<AnketaOverviewItem | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [renaming, setRenaming] = useState(false);
+  const [sendTemplate, setSendTemplate] = useState<AnketaOverviewItem | null>(null);
+  const [sendAllOpen, setSendAllOpen] = useState(false);
 
   const company = state.companies.find(c => c.id === companyId);
   const resp = state.responsibles.find(r => r.companyId === companyId);
 
-  const refreshAnketaStatuses = useCallback(async () => {
+  const refreshAnketaOverview = useCallback(async () => {
     if (!company) return;
     try {
-      const data = await fetchAnketaStatuses(company.id);
-      setAnketaStatuses(data);
+      const data = await fetchAnketaOverview(company.id);
+      setAnketaItems(data.items);
     } catch {
-      setAnketaStatuses({});
+      setAnketaItems([]);
     }
   }, [company]);
 
   useEffect(() => {
-    refreshAnketaStatuses();
-  }, [refreshAnketaStatuses]);
+    refreshAnketaOverview();
+  }, [refreshAnketaOverview]);
+
+  const statusByType = useMemo(
+    () => Object.fromEntries(anketaItems.map(i => [i.anketaType, i.rawStatus])),
+    [anketaItems],
+  );
 
   const openAnketaEditor = useCallback((anketaType: AnketaTemplateType) => {
     setEditingAnketaType(anketaType);
-    setMarkVerified(anketaStatuses[anketaType] === 'verified');
-  }, [anketaStatuses]);
+    setMarkVerified(statusByType[anketaType] === 'verified');
+  }, [statusByType]);
 
   const closeAnketaEditor = useCallback(() => {
     setEditCompanyOpen(false);
@@ -110,22 +137,57 @@ export default function CompanyAnketyPanel({ companyId }: CompanyAnketyPanelProp
     }
   }, [markVerified, editingAnketaType, company, dispatch]);
 
-  const mainRows = useMemo(() => ANKETA_TEMPLATES.map((template, index) => ({
-    key: template.anketaType,
-    num: index + 1,
-    anketaType: template.anketaType,
-    name: template.name,
-    status: anketaStatuses[template.anketaType] || 'not_filled',
-    onClick: () => {
+  const openRename = (item: AnketaOverviewItem) => {
+    setRenameTarget(item);
+    setRenameValue(item.name);
+  };
+
+  const saveRename = async () => {
+    if (!company || !renameTarget) return;
+    const name = renameValue.trim();
+    if (!name) {
+      message.warning('Введите название');
+      return;
+    }
+    setRenaming(true);
+    try {
+      const updated = await updateAnketaLabel(company.id, renameTarget.anketaType, name);
+      dispatch({ type: 'UPDATE_COMPANY', id: company.id, data: updated });
+      await refreshAnketaOverview();
+      setRenameTarget(null);
+      message.success('Название сохранено');
+    } catch {
+      message.error('Не удалось сохранить название');
+    } finally {
+      setRenaming(false);
+    }
+  };
+
+  const mainRows = useMemo(() => {
+    const items = anketaItems.length
+      ? anketaItems
+      : ANKETA_TEMPLATES.map(t => ({
+          anketaType: t.anketaType,
+          name: t.name,
+          rawStatus: 'not_filled',
+          displayStatus: 'not_filled' as const,
+          createdAt: null,
+          updatedAt: null,
+        }));
+    return items.map((item, index) => ({
+      ...item,
+      key: item.anketaType,
+      num: index + 1,
+      openForm: () => {
       if (!company) return;
-      openAnketaEditor(template.anketaType);
-      if (template.anketaType === 'company') {
+      openAnketaEditor(item.anketaType as AnketaTemplateType);
+      if (item.anketaType === 'company') {
         companyForm.setFieldsValue({
           ...company,
           pdStartDate: company.pdStartDate ? dayjs(company.pdStartDate) : null,
         });
         setEditCompanyOpen(true);
-      } else if (template.anketaType === 'responsible') {
+      } else if (item.anketaType === 'responsible') {
         respForm.setFieldsValue(resp ?? {
           id: 0,
           companyId: company.id,
@@ -140,15 +202,16 @@ export default function CompanyAnketyPanel({ companyId }: CompanyAnketyPanelProp
           handlesRequests: false,
         });
         setEditRespOpen(true);
-      } else if (template.anketaType === 'sites') {
+      } else if (item.anketaType === 'sites') {
         sitesForm.setFieldsValue(companyToSitesAnketaValues(company));
         setEditSitesOpen(true);
-      } else if (template.anketaType === 'departments') {
+      } else if (item.anketaType === 'departments') {
         departmentsForm.setFieldsValue(companyToDepartmentsAnketaValues(company));
         setEditDepartmentsOpen(true);
       }
-    },
-  })), [anketaStatuses, company, resp, companyForm, respForm, sitesForm, departmentsForm, openAnketaEditor]);
+      },
+    }));
+  }, [anketaItems, company, resp, companyForm, respForm, sitesForm, departmentsForm, openAnketaEditor]);
 
   const mainColumns = [
     { title: '№', dataIndex: 'num', key: 'num', width: 56 },
@@ -159,7 +222,8 @@ export default function CompanyAnketyPanel({ companyId }: CompanyAnketyPanelProp
       render: (v: string, row: (typeof mainRows)[0]) => (
         <span
           style={{ fontWeight: 550, color: '#1677ff', cursor: 'pointer' }}
-          onClick={row.onClick}
+          onClick={() => openRename(row)}
+          title="Изменить название"
         >
           {v}
         </span>
@@ -167,28 +231,55 @@ export default function CompanyAnketyPanel({ companyId }: CompanyAnketyPanelProp
     },
     {
       title: 'Статус',
-      dataIndex: 'status',
+      dataIndex: 'rawStatus',
       key: 'status',
-      width: 160,
-      render: (status: string) => <StatusBadge status={status} />,
-    },
-    {
-      title: 'Примечание',
-      key: 'hint',
-      render: (_: unknown, row: (typeof mainRows)[0]) => (
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          {ANKETA_STATUS_HINTS[row.status] || '—'}
-        </Text>
+      width: 280,
+      render: (rawStatus: string) => (
+        <Text>{getAnketaStatusLabel(rawStatus)}</Text>
       ),
     },
     {
+      title: 'Дата загрузки',
+      dataIndex: 'createdAt',
+      key: 'createdAt',
+      width: 130,
+      render: (v: string | null) => <Text type="secondary">{formatAnketaDate(v)}</Text>,
+    },
+    {
+      title: 'Дата обновления',
+      dataIndex: 'updatedAt',
+      key: 'updatedAt',
+      width: 140,
+      render: (v: string | null) => <Text type="secondary">{formatAnketaDate(v)}</Text>,
+    },
+    {
       title: '',
-      key: 'edit',
-      width: 100,
+      key: 'actions',
+      width: 260,
       render: (_: unknown, row: (typeof mainRows)[0]) => (
-        <Button type="link" size="small" onClick={e => { e.stopPropagation(); row.onClick(); }}>
-          {row.status === 'not_filled' || row.status === 'sent' ? 'Заполнить' : 'Изменить'}
-        </Button>
+        <Space size={4} onClick={e => e.stopPropagation()} wrap>
+          <Button type="link" size="small" onClick={row.openForm}>
+            {getAnketaActionLabel(row.rawStatus)}
+          </Button>
+          <Button
+            type="link"
+            size="small"
+            icon={<SendOutlined />}
+            onClick={() => setSendTemplate(row)}
+          >
+            Отправить
+          </Button>
+          <Popconfirm
+            title="Удалить данные этой анкеты?"
+            description="Поля анкеты, приглашения и связанные процессы будут сброшены."
+            okText="Удалить"
+            cancelText="Отмена"
+            okButtonProps={{ danger: true }}
+            onConfirm={() => handleDeleteAnketa(row.anketaType)}
+          >
+            <Button type="link" size="small" danger icon={<DeleteOutlined />} title="Удалить" />
+          </Popconfirm>
+        </Space>
       ),
     },
   ];
@@ -209,7 +300,7 @@ export default function CompanyAnketyPanel({ companyId }: CompanyAnketyPanelProp
       await applyVerifiedIfNeeded();
       message.success('Данные компании сохранены');
       closeAnketaEditor();
-      await refreshAnketaStatuses();
+      await refreshAnketaOverview();
     } catch {
       message.error('Не удалось сохранить данные');
     }
@@ -221,7 +312,7 @@ export default function CompanyAnketyPanel({ companyId }: CompanyAnketyPanelProp
       await applyVerifiedIfNeeded();
       message.success('Данные ответственного сохранены');
       closeAnketaEditor();
-      await refreshAnketaStatuses();
+      await refreshAnketaOverview();
     } catch {
       message.error('Не удалось сохранить данные');
     }
@@ -234,7 +325,7 @@ export default function CompanyAnketyPanel({ companyId }: CompanyAnketyPanelProp
       await applyVerifiedIfNeeded();
       message.success('Данные сохранены');
       closeAnketaEditor();
-      await refreshAnketaStatuses();
+      await refreshAnketaOverview();
     } catch {
       message.error('Не удалось сохранить данные');
     }
@@ -247,17 +338,43 @@ export default function CompanyAnketyPanel({ companyId }: CompanyAnketyPanelProp
       await applyVerifiedIfNeeded();
       message.success('Данные сохранены');
       closeAnketaEditor();
-      await refreshAnketaStatuses();
+      await refreshAnketaOverview();
     } catch {
       message.error('Не удалось сохранить данные');
     }
   };
 
+  const handleDeleteAnketa = async (anketaType: AnketaTemplateType) => {
+    if (!company) return;
+    try {
+      const { company: updated, responsible, items } = await deleteCompanyAnketa(
+        company.id,
+        anketaType,
+      );
+      await dispatch({ type: 'UPDATE_COMPANY', id: updated.id, data: updated });
+      const nextResponsibles = responsible
+        ? state.responsibles.some(r => r.id === responsible.id)
+          ? state.responsibles.map(r => (r.id === responsible.id ? responsible : r))
+          : [...state.responsibles, responsible]
+        : state.responsibles.filter(r => r.companyId !== company.id);
+      dispatch({ type: 'HYDRATE', data: { responsibles: nextResponsibles } });
+      const { data: processes } = await api.get<Process[]>('/processes', { params: { companyId: company.id } });
+      dispatch({ type: 'HYDRATE', data: { processes } });
+      setAnketaItems(items);
+      closeAnketaEditor();
+      message.success('Данные анкеты удалены');
+    } catch {
+      message.error('Не удалось удалить анкету');
+    }
+  };
+
+  const editingStatus = editingAnketaType ? (statusByType[editingAnketaType] || 'not_filled') : 'not_filled';
   const anketaFooter = (
     <AnketaFormFooter
       markVerified={markVerified}
       onMarkVerifiedChange={setMarkVerified}
       onClose={closeAnketaEditor}
+      verifyDisabled={editingStatus === 'verified'}
     />
   );
 
@@ -265,7 +382,14 @@ export default function CompanyAnketyPanel({ companyId }: CompanyAnketyPanelProp
 
   return (
     <>
-      <Card title="Анкеты компании">
+      <Card
+        title="Анкеты компании"
+        extra={
+          <Button type="primary" icon={<SendOutlined />} onClick={() => setSendAllOpen(true)}>
+            Отправить все анкеты
+          </Button>
+        }
+      >
         <Table
           rowKey="key"
           dataSource={mainRows}
@@ -276,7 +400,7 @@ export default function CompanyAnketyPanel({ companyId }: CompanyAnketyPanelProp
             expandedRowRender: row => company ? (
               <AnketaSummaryView anketaType={row.anketaType} company={company} responsible={resp} />
             ) : null,
-            rowExpandable: row => !['not_filled', 'sent'].includes(row.status),
+            rowExpandable: row => ['filling', 'filled', 'need_check', 'verified'].includes(row.rawStatus),
           }}
         />
       </Card>
@@ -344,6 +468,43 @@ export default function CompanyAnketyPanel({ companyId }: CompanyAnketyPanelProp
           <SitesAnketaFormFields />
           {anketaFooter}
         </Form>
+      </Modal>
+
+      <AnketaInviteModal
+        open={!!sendTemplate}
+        template={sendTemplate ? { anketaType: sendTemplate.anketaType, name: sendTemplate.name } : null}
+        fixedCompanyId={companyId}
+        onClose={() => {
+          setSendTemplate(null);
+          refreshAnketaOverview();
+        }}
+      />
+      <AnketaSendAllModal
+        open={sendAllOpen}
+        fixedCompanyId={companyId}
+        onClose={() => {
+          setSendAllOpen(false);
+          refreshAnketaOverview();
+        }}
+      />
+
+      <Modal
+        title="Название анкеты"
+        open={!!renameTarget}
+        onCancel={() => setRenameTarget(null)}
+        onOk={saveRename}
+        okText="Сохранить"
+        cancelText="Отмена"
+        confirmLoading={renaming}
+        destroyOnClose
+      >
+        <Input
+          value={renameValue}
+          onChange={e => setRenameValue(e.target.value)}
+          onPressEnter={saveRename}
+          placeholder="Введите название"
+          maxLength={200}
+        />
       </Modal>
 
       <Modal title="Отделы и должности, работающие с персональными данными" open={editDepartmentsOpen} onCancel={closeAnketaEditor} footer={null} width={760} destroyOnClose>

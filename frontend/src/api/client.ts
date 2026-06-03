@@ -73,10 +73,14 @@ export async function fetchAppState(): Promise<Partial<AppState>> {
 export const apiActions = {
   updateCompany: (id: number, data: object) => api.put(`/companies/${id}`, data),
   updateResponsible: (companyId: number, data: object) => api.put(`/companies/${companyId}/responsible`, data),
-  addProcess: (companyId: number, name?: string) => api.post('/processes', { companyId, name }),
+  addProcess: (payload: { companyId?: number | null; name?: string; isCorporate?: boolean }) =>
+    api.post('/processes', payload),
+  addCorporateProcess: (name?: string) => api.post('/processes/corporate', { name }),
+  prefillProcessFromAnkety: (processId: number) => api.post(`/processes/${processId}/prefill-from-ankety`),
   updateProcessSection: (processId: number, section: number, status: string, data: object) =>
     api.put(`/processes/${processId}/sections/${section}`, { status, data }),
   updateProcess: (id: number, data: object) => api.put(`/processes/${id}`, data),
+  deleteProcess: (id: number) => api.delete(`/processes/${id}`),
   addJournal: (formData: FormData) => postFormData('/journal', formData),
   getJournalEntries: () => api.get('/journal'),
   updateJournal: (id: number, data: object) => api.put(`/journal/${id}`, data),
@@ -97,6 +101,8 @@ export const apiActions = {
   downloadDocumentsArchive: (companyId: number, types?: string) =>
     api.get('/documents/archive', { responseType: 'blob', params: { companyId, types } }),
   getRknNotifications: () => api.get('/rkn'),
+  createRknNotification: (companyId: number) =>
+    api.post(`/companies/${companyId}/rkn-notification`),
   uploadRknDocument: (notificationId: number, formData: FormData) =>
     postFormData(`/rkn/${notificationId}/documents`, formData),
   downloadRknDocument: (notificationId: number, docId: number) =>
@@ -117,5 +123,7 @@ export const apiActions = {
   addDocument: (formData: FormData) => postFormData('/documents', formData),
   deleteDocument: (id: number) => api.delete(`/documents/${id}`),
   downloadDocument: (id: number) => api.get(`/documents/${id}/download`, { responseType: 'blob' }),
-  getAuditLog: (params?: { limit?: number; entityType?: string }) => api.get('/audit', { params }),
+  getAuditLog: (params?: { limit?: number; offset?: number; entityType?: string }) =>
+    api.get<{ total: number; items: unknown[] }>('/audit', { params }),
+  getAuditEntityTypes: () => api.get<{ value: string; label: string }[]>('/audit/entity-types'),
 };

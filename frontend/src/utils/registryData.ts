@@ -38,7 +38,9 @@ function formatSubjectPd(
 export interface ProcessRegistryRow {
   num: number;
   processId: number;
-  companyId: number;
+  companyId: number | null;
+  isCorporate: boolean;
+  companyName: string;
   processName: string;
   tags: string;
   description: string;
@@ -104,8 +106,12 @@ const IS_USAGE_LABELS: Record<string, string> = {
   no_data: 'Нет данных',
 };
 
-export function buildProcessRegistryRows(processes: Process[]): ProcessRegistryRow[] {
+export function buildProcessRegistryRows(
+  processes: Process[],
+  companiesById?: Map<number, import('../types').Company>,
+): ProcessRegistryRow[] {
   return processes.map((p, i) => {
+    const company = p.companyId != null ? companiesById?.get(p.companyId) : undefined;
     const s1 = sec(p, 1);
     const s2 = sec(p, 2);
     const s3 = sec(p, 3);
@@ -200,6 +206,10 @@ export function buildProcessRegistryRows(processes: Process[]): ProcessRegistryR
       num: i + 1,
       processId: p.id,
       companyId: p.companyId,
+      isCorporate: Boolean(p.isCorporate),
+      companyName: p.isCorporate
+        ? 'Общекорпоративный'
+        : (company?.shortName || company?.name || '—'),
       processName: p.name,
       tags: (p.tags ?? []).join(', '),
       description: String(s1.description ?? ''),

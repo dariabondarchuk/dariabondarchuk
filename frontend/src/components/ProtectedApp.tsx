@@ -6,8 +6,8 @@ import { fetchAppState } from '../api/client';
 import { syncAction } from '../api/syncDispatch';
 import { AppContext } from '../context/AppContext';
 import Layout from '../components/Layout';
-import type { AppAction, Company, DispatchFn, MonitorEvent } from '../types';
-import { apiActions } from '../api/client';
+import type { AppAction, DispatchFn } from '../types';
+import { runDadataEgrulCheck } from '../utils/dadataMonitor';
 
 export default function ProtectedApp() {
   const token = localStorage.getItem('token');
@@ -23,14 +23,10 @@ export default function ProtectedApp() {
       .then(data => {
         dispatch({ type: 'HYDRATE', data });
         setLoading(false);
-        apiActions.checkDadataChanges()
-          .then(({ data: check }) => {
-            if (check.companies?.length) {
-              dispatch({ type: 'PATCH_COMPANIES', companies: check.companies as Company[] });
-            }
+        runDadataEgrulCheck(dispatch, { silent: true })
+          .then(check => {
             if (check.events?.length) {
-              dispatch({ type: 'PREPEND_MONITOR_EVENTS', events: check.events as MonitorEvent[] });
-              message.info(`Обнаружены изменения в DaData: ${check.events.length} уведомлений`);
+              message.info(`Изменения в ЕГРЮЛ (DaData): ${check.events.length} уведомлений`);
             }
           })
           .catch(() => {});
@@ -47,7 +43,7 @@ export default function ProtectedApp() {
 
   const dispatchSync = useCallback<DispatchFn>(async (action) => {
     try {
-      await syncAction(action as AppAction, dispatch);
+      return await syncAction(action as AppAction, dispatch);
     } catch (err) {
       console.error(err);
       throw err;

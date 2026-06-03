@@ -81,6 +81,8 @@ model Company {
   offices        Json                 @default("[]")
   sites          Json                 @default("[]")
   apps           Json                 @default("[]")
+  anketaMeta     Json                 @default("{}")
+  egrulSnapshot  Json?
   createdAt      DateTime             @default(now())
   updatedAt      DateTime             @updatedAt
   processes         Process[]
@@ -108,19 +110,20 @@ model CompanyResponsible {
 }
 
 model Process {
-  id        Int           @id @default(autoincrement())
-  companyId Int
-  company   Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  name      String
-  tags      String[]
-  status    ProcessStatus @default(NOT_SENT)
-  sentTo    String?
-  sentAt    DateTime?
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
-  sections  ProcessSection[]
-  invites   ProcessInvite[]
-  anketaType String?
+  id           Int           @id @default(autoincrement())
+  companyId    Int?
+  company      Company?      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  isCorporate  Boolean       @default(false)
+  name         String
+  tags         String[]
+  status       ProcessStatus @default(NOT_SENT)
+  sentTo       String?
+  sentAt       DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  sections     ProcessSection[]
+  invites      ProcessInvite[]
+  anketaType   String?
   sourceInvites AnketaInvite[]
 }
 
@@ -221,6 +224,8 @@ model GeneratedDocument {
   type       String
   filePath   String?
   uploadDate DateTime?
+  isCurrent  Boolean   @default(true)
+  version    Int       @default(1)
 }
 
 model AuditLog {

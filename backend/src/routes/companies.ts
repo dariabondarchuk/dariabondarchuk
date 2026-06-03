@@ -7,15 +7,21 @@ import { mapCompany, mapResponsible, parseDate, writeAudit } from '../utils/help
 import { isValidAnketaType, MAIN_ANKETA_NAMES } from '../utils/anketaTypes';
 import { sendAnketaBulkInviteEmail, sendAnketaInviteEmail } from '../utils/mail';
 import { computeAnketaStatuses } from '../utils/anketaStatus';
+import { buildAnketaOverview } from '../utils/anketaOverview';
+import { resetCompanyAnketaData } from '../utils/resetAnketaData';
+import { buildAnketaInvitePrefill } from '../utils/anketaInvitePrefill';
 import { findPartyByQuery } from '../utils/dadata';
 import {
   buildCompanyUpdateFromPatch,
   companyToSnapshot,
+  checkCompanyEgrulFromDadata,
   createDadataMonitorEvents,
   detectDadataChanges,
+  egrulSnapshotToJson,
   mapMonitorEventRow,
   patchToSnapshot,
 } from '../utils/companyDadataMonitor';
+import { createRknNotificationForCompany } from '../utils/createRknNotification';
 
 const router = Router();
 
@@ -61,6 +67,7 @@ router.post('/from-dadata', authMiddleware, async (req: AuthRequest, res) => {
         legalAddress: patch.legalAddress || null,
         postalAddress: patch.postalAddress || null,
         city: patch.city || null,
+        egrulSnapshot: egrulSnapshotToJson(patchToSnapshot(patch)),
       },
     });
 
@@ -86,6 +93,16 @@ router.post('/from-dadata', authMiddleware, async (req: AuthRequest, res) => {
     const status = message.includes('не настроен') ? 503 : message.includes('не найдена') ? 404 : 502;
     res.status(status).json({ error: message });
   }
+});
+
+router.post('/:id/rkn-notification', authMiddleware, async (req: AuthRequest, res) => {
+  const companyId = Number(req.params.id);
+  if (!companyId || Number.isNaN(companyId)) {
+    return res.status(400).json({ error: 'Некорректный идентификатор компании' });
+  }
+
+  const result = await createRknNotificationForCompany(companyId, { userId: req.userId, ip: req.ip });
+  res.status(result.status).json(result.body);
 });
 
 router.get('/:id', authMiddleware, async (req, res) => {
@@ -126,6 +143,9 @@ router.put('/:id', authMiddleware, async (req: AuthRequest, res) => {
     offices: (body.offices ?? existing.offices) as Prisma.InputJsonValue,
     sites: (body.sites ?? existing.sites) as Prisma.InputJsonValue,
     apps: (body.apps ?? existing.apps) as Prisma.InputJsonValue,
+    anketaMeta: body.anketaMeta !== undefined
+      ? (body.anketaMeta as Prisma.InputJsonValue)
+      : (existing.anketaMeta as Prisma.InputJsonValue),
   };
 
   const updated = await prisma.company.update({ where: { id }, data });
@@ -151,8 +171,10 @@ router.post('/check-dadata-changes', authMiddleware, async (req: AuthRequest, re
 
   const allEvents: ReturnType<typeof mapMonitorEventRow>[] = [];
   const updatedCompanies: ReturnType<typeof mapCompany>[] = [];
+  const errors: { companyId: number; error: string }[] = [];
   let checked = 0;
   let changed = 0;
+  let baselined = 0;
 
   for (const company of companies) {
     const query = company.inn?.trim() || company.ogrn?.trim();
@@ -160,33 +182,42 @@ router.post('/check-dadata-changes', authMiddleware, async (req: AuthRequest, re
     checked += 1;
 
     try {
-      const patch = await findPartyByQuery({ query, branch_type: 'MAIN' });
-      const before = companyToSnapshot(company);
-      const after = patchToSnapshot(patch);
-      const changes = detectDadataChanges(before, after);
-      if (!changes.length) continue;
-
-      const updated = await prisma.company.update({
-        where: { id: company.id },
-        data: buildCompanyUpdateFromPatch(before, patch),
-      });
-
-      const events = await createDadataMonitorEvents(company.id, changes);
-      if (events.length) {
-        changed += 1;
-        allEvents.push(...events);
-        updatedCompanies.push(mapCompany(updated as unknown as Record<string, unknown>));
-        await writeAudit(req.userId, 'Company', company.id, 'DADATA_AUTO_SYNC', {
-          query,
-          changes: changes.map(c => c.eventType),
-        }, req.ip);
+      const result = await checkCompanyEgrulFromDadata(company);
+      if (result.skipped) continue;
+      if (result.baselined) {
+        baselined += 1;
+        continue;
       }
+      if (!result.events.length) continue;
+
+      changed += 1;
+      allEvents.push(...result.events);
+      const updated = await prisma.company.findUnique({ where: { id: company.id } });
+      if (updated) {
+        updatedCompanies.push(mapCompany(updated as unknown as Record<string, unknown>));
+      }
+      await writeAudit(req.userId, 'Company', company.id, 'DADATA_EGRUL_CHANGE', {
+        query,
+        changes: result.events.map(e => e.type),
+      }, req.ip);
     } catch (err) {
+      const message = err instanceof Error ? err.message : 'Ошибка DaData';
       console.error(`[dadata-check] company ${company.id}:`, err);
+      errors.push({ companyId: company.id, error: message });
     }
   }
 
-  res.json({ checked, changed, events: allEvents, companies: updatedCompanies });
+  if (checked > 0) {
+    await writeAudit(req.userId, 'EgrulCheck', 0, 'DADATA_EGRUL_CHECK', {
+      checked,
+      changed,
+      baselined,
+      eventsCount: allEvents.length,
+      errors: errors.length,
+    }, req.ip);
+  }
+
+  res.json({ checked, changed, baselined, events: allEvents, companies: updatedCompanies, errors });
 });
 
 router.post('/:id/sync-dadata', authMiddleware, async (req: AuthRequest, res) => {
@@ -213,7 +244,10 @@ router.post('/:id/sync-dadata', authMiddleware, async (req: AuthRequest, res) =>
 
     const updated = await prisma.company.update({
       where: { id },
-      data: buildCompanyUpdateFromPatch(before, patch),
+      data: {
+        ...buildCompanyUpdateFromPatch(before, patch),
+        egrulSnapshot: egrulSnapshotToJson(after),
+      },
     });
 
     const events = await createDadataMonitorEvents(id, changes);
@@ -284,13 +318,48 @@ router.get('/:id/anketa-statuses', authMiddleware, async (req, res) => {
     ),
   }));
 
-  res.json(computeAnketaStatuses(
+  const overview = buildAnketaOverview(
     companyId,
-    mappedCompany as unknown as Parameters<typeof computeAnketaStatuses>[1],
-    mappedResp as unknown as Parameters<typeof computeAnketaStatuses>[2],
+    {
+      ...(mappedCompany as Record<string, unknown>),
+      anketaMeta: company.anketaMeta as Record<string, { customName?: string }>,
+      createdAt: company.createdAt,
+      updatedAt: company.updatedAt,
+    },
+    mappedResp as Parameters<typeof buildAnketaOverview>[2],
     mappedProcesses,
     invites,
-  ));
+  );
+  res.json({
+    items: overview,
+    statuses: Object.fromEntries(overview.map(i => [i.anketaType, i.rawStatus])),
+  });
+});
+
+router.patch('/:id/anketa/:anketaType/label', authMiddleware, async (req: AuthRequest, res) => {
+  const companyId = Number(req.params.id);
+  const anketaType = String(req.params.anketaType);
+  const customName = String((req.body as { name?: string }).name ?? '').trim();
+  if (!isValidAnketaType(anketaType)) {
+    return res.status(400).json({ error: 'Некорректный тип анкеты' });
+  }
+  if (!customName) {
+    return res.status(400).json({ error: 'Укажите название' });
+  }
+
+  const company = await prisma.company.findUnique({ where: { id: companyId } });
+  if (!company) return res.status(404).json({ error: 'Компания не найдена' });
+
+  const meta = (company.anketaMeta as Record<string, { customName?: string }>) ?? {};
+  meta[anketaType] = { ...meta[anketaType], customName };
+
+  const updated = await prisma.company.update({
+    where: { id: companyId },
+    data: { anketaMeta: meta as Prisma.InputJsonValue },
+  });
+
+  await writeAudit(req.userId, 'Company', companyId, 'UPDATE_ANKETA_LABEL', { anketaType, customName }, req.ip);
+  res.json(mapCompany(updated as unknown as Record<string, unknown>));
 });
 
 router.post('/:id/anketa/:anketaType/verify', authMiddleware, async (req: AuthRequest, res) => {
@@ -336,7 +405,7 @@ router.post('/:id/anketa/:anketaType/verify', authMiddleware, async (req: AuthRe
     data: {
       companyId,
       name: anketaName,
-      tags: ['Анкета'],
+      tags: [],
       anketaType,
       status: ProcessStatus.VERIFIED,
       sections: {
@@ -353,6 +422,72 @@ router.post('/:id/anketa/:anketaType/verify', authMiddleware, async (req: AuthRe
   res.json({ ok: true, status: 'verified', processId: created.id });
 });
 
+router.delete('/:id/anketa/:anketaType', authMiddleware, async (req: AuthRequest, res) => {
+  const companyId = Number(req.params.id);
+  const anketaType = String(req.params.anketaType);
+  if (!isValidAnketaType(anketaType)) {
+    return res.status(400).json({ error: 'Некорректный тип анкеты' });
+  }
+
+  const company = await prisma.company.findUnique({
+    where: { id: companyId },
+    include: { responsibles: true },
+  });
+  if (!company) return res.status(404).json({ error: 'Компания не найдена' });
+
+  try {
+    await resetCompanyAnketaData(companyId, anketaType);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Ошибка удаления';
+    return res.status(400).json({ error: msg });
+  }
+
+  await writeAudit(req.userId, 'Company', companyId, 'DELETE_ANKETA', { anketaType }, req.ip);
+
+  const updated = await prisma.company.findUnique({
+    where: { id: companyId },
+    include: { responsibles: true },
+  });
+  const responsible = updated?.responsibles[0] ?? null;
+  const processes = await prisma.process.findMany({
+    where: { companyId, anketaType: { not: null } },
+    include: { sections: { orderBy: { sectionNumber: 'asc' } } },
+  });
+  const invites = await prisma.anketaInvite.findMany({ where: { companyId } });
+
+  const mappedCompany = mapCompany(updated as unknown as Record<string, unknown>);
+  const mappedResp = responsible
+    ? mapResponsible(responsible as unknown as Record<string, unknown>)
+    : null;
+  const mappedProcesses = processes.map(p => ({
+    companyId: p.companyId,
+    anketaType: p.anketaType ?? undefined,
+    status: p.status,
+    sections: Object.fromEntries(
+      p.sections.map(s => [s.sectionNumber, { data: s.data as Record<string, unknown> }]),
+    ),
+  }));
+
+  const overview = buildAnketaOverview(
+    companyId,
+    {
+      ...(mappedCompany as Record<string, unknown>),
+      anketaMeta: updated!.anketaMeta as Record<string, { customName?: string }>,
+      createdAt: updated!.createdAt,
+      updatedAt: updated!.updatedAt,
+    },
+    mappedResp as Parameters<typeof buildAnketaOverview>[2],
+    mappedProcesses,
+    invites,
+  );
+  res.json({
+    company: mappedCompany,
+    responsible: mappedResp,
+    items: overview,
+    statuses: Object.fromEntries(overview.map(i => [i.anketaType, i.rawStatus])),
+  });
+});
+
 router.post('/:id/anketa-invite', authMiddleware, async (req: AuthRequest, res) => {
   try {
     const companyId = Number(req.params.id);
@@ -363,6 +498,9 @@ router.post('/:id/anketa-invite', authMiddleware, async (req: AuthRequest, res) 
 
     const company = await prisma.company.findUnique({ where: { id: companyId } });
     if (!company) return res.status(404).json({ error: 'Компания не найдена' });
+
+    const responsible = await prisma.companyResponsible.findFirst({ where: { companyId } });
+    const prefillData = buildAnketaInvitePrefill(body.anketaType, company, responsible);
 
     const email = body.email?.trim() || null;
     const token = crypto.randomUUID();
@@ -377,6 +515,7 @@ router.post('/:id/anketa-invite', authMiddleware, async (req: AuthRequest, res) 
         email,
         comment: body.comment?.trim() || null,
         expiresAt,
+        data: prefillData as Prisma.InputJsonValue,
       },
     });
 
@@ -423,6 +562,7 @@ router.post('/:id/anketa-invite-all', authMiddleware, async (req: AuthRequest, r
     const company = await prisma.company.findUnique({ where: { id: companyId } });
     if (!company) return res.status(404).json({ error: 'Компания не найдена' });
 
+    const responsible = await prisma.companyResponsible.findFirst({ where: { companyId } });
     const email = body.email?.trim() || null;
     const baseUrl = process.env.PUBLIC_URL || 'http://localhost:5173';
     const expiresAt = new Date();
@@ -434,6 +574,7 @@ router.post('/:id/anketa-invite-all', authMiddleware, async (req: AuthRequest, r
 
     for (const anketaType of anketaTypes) {
       const token = crypto.randomUUID();
+      const prefillData = buildAnketaInvitePrefill(anketaType, company, responsible);
       await prisma.anketaInvite.create({
         data: {
           companyId,
@@ -442,6 +583,7 @@ router.post('/:id/anketa-invite-all', authMiddleware, async (req: AuthRequest, r
           email,
           comment,
           expiresAt,
+          data: prefillData as Prisma.InputJsonValue,
         },
       });
       invites.push({

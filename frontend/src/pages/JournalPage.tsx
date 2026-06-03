@@ -356,8 +356,7 @@ export default function JournalPage() {
       dataIndex: 'dateOut',
       key: 'dateOut',
       width: 110,
-      render: (v: string, record: JournalEntry) =>
-        v || (record.hasAnswerFile ? '—' : <Text type="warning">Ожидает</Text>),
+      render: (v: string) => v || '—',
     },
     {
       title: 'Заявитель',
@@ -508,7 +507,7 @@ export default function JournalPage() {
               </div>
               <div>
                 <Text type="secondary">Дата ответа</Text>
-                <div>{detail.dateOut || (detail.hasAnswerFile ? '—' : 'Ожидает')}</div>
+                <div>{detail.dateOut || '—'}</div>
               </div>
             </div>
             <div style={{ marginBottom: 8 }}>

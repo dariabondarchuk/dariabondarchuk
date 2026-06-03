@@ -15,6 +15,12 @@ export const THREAT_DOCUMENT_TYPES = [
   { type: 'threat_other', name: 'Иной документ модели угроз' },
 ] as const;
 
+/** Все типы из стандартных разделов — не показывать их в «Прочие документы» */
+export const ALL_REGISTERED_DOCUMENT_TYPES = [
+  ...PDN_DOCUMENT_TYPES,
+  ...THREAT_DOCUMENT_TYPES,
+] as const;
+
 export const ANKETA_STATUS_HINTS: Record<string, string> = {
   not_filled: 'Анкета не заполнена и ссылка не отправлена',
   sent: 'Ссылка отправлена — ожидается заполнение',

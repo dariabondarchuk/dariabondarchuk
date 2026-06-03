@@ -2,15 +2,21 @@ import { Router } from 'express';
 import { ProcessStatus, SectionStatus, Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { MAIN_ANKETA_NAMES } from '../utils/anketaTypes';
+import { mergeAnketaInviteData } from '../utils/anketaInvitePrefill';
 import { findPartyByQuery } from '../utils/dadata';
+import { writeAudit } from '../utils/helpers';
 
 const router = Router();
 
 async function loadInvite(token: string) {
   return prisma.anketaInvite.findUnique({
     where: { token },
-    include: { company: { select: { name: true, shortName: true } } },
+    include: { company: true },
   });
+}
+
+async function loadResponsible(companyId: number) {
+  return prisma.companyResponsible.findFirst({ where: { companyId } });
 }
 
 function inviteError(invite: Awaited<ReturnType<typeof loadInvite>>) {
@@ -28,13 +34,21 @@ router.get('/anketa/:token', async (req, res) => {
   if (err) return res.status(err.status).json({ error: err.message });
   if (!invite) return res.status(404).json({ error: 'Not found' });
 
+  const responsible = await loadResponsible(invite.companyId);
+  const data = mergeAnketaInviteData(
+    invite.anketaType,
+    invite.company,
+    responsible,
+    invite.data,
+  );
+
   res.json({
     anketaType: invite.anketaType,
     anketaName: MAIN_ANKETA_NAMES[invite.anketaType] || invite.anketaType,
     companyName: invite.company.shortName || invite.company.name,
     comment: invite.comment,
     email: invite.email,
-    data: invite.data,
+    data,
   });
 });
 
@@ -69,6 +83,12 @@ router.put('/anketa/:token', async (req, res) => {
     where: { id: invite.id },
     data: { data: (body.data ?? invite.data) as Prisma.InputJsonValue },
   });
+  await writeAudit(undefined, 'AnketaInvite', invite.id, 'SAVE_ANKETA_DRAFT', {
+    source: 'public_link',
+    anketaType: invite.anketaType,
+    email: invite.email,
+    companyId: invite.companyId,
+  });
   res.json({ ok: true });
 });
 
@@ -87,7 +107,7 @@ router.post('/anketa/:token/submit', async (req, res) => {
     data: {
       companyId: invite.companyId,
       name: anketaName,
-      tags: ['Анкета'],
+      tags: [],
       anketaType: invite.anketaType,
       status: ProcessStatus.NEED_CHECK,
       sentTo: invite.email,
@@ -111,6 +131,14 @@ router.post('/anketa/:token/submit', async (req, res) => {
       processId: process.id,
       data: submittedData as Prisma.InputJsonValue,
     },
+  });
+
+  await writeAudit(undefined, 'AnketaInvite', invite.id, 'SUBMIT_ANKETA', {
+    source: 'public_link',
+    anketaType: invite.anketaType,
+    email: invite.email,
+    companyId: invite.companyId,
+    processId: process.id,
   });
 
   res.json({ ok: true, message: 'Анкета отправлена на проверку DPO', processId: process.id });

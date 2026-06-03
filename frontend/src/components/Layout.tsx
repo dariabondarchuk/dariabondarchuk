@@ -19,9 +19,10 @@ const { Text } = Typography;
 
 const menuItems = [
   { key: '/companies', icon: <BankOutlined />, label: 'Компании' },
-  { key: '/ankety', icon: <FormOutlined />, label: 'Анкеты' },
-  { key: '/processes', icon: <ClusterOutlined />, label: 'Процессы' },
-  { key: '/process-registry', icon: <TableOutlined />, label: 'Реестр процессов' },
+  { key: '/ankety', icon: <FormOutlined />, label: 'Шаблоны анкет' },
+  { key: '/processes', icon: <ClusterOutlined />, label: 'Процессы компаний' },
+  { key: '/corporate-processes', icon: <ClusterOutlined />, label: 'Общекорпоративные процессы' },
+  { key: '/process-registry', icon: <TableOutlined />, label: 'Реестр всех процессов' },
   { key: '/rkn', icon: <BellOutlined />, label: 'Уведомления РКН' },
   { key: '/journal', icon: <BookOutlined />, label: 'Журналы обращений' },
   { key: '/monitor', icon: <ClockCircleOutlined />, label: 'Уведомления' },
@@ -33,6 +34,7 @@ function selectedMenuKey(pathname: string) {
   if (pathname.startsWith('/companies')) return '/companies';
   if (pathname.startsWith('/ankety')) return '/ankety';
   if (pathname.startsWith('/process-registry')) return '/process-registry';
+  if (pathname.startsWith('/corporate-processes')) return '/corporate-processes';
   if (pathname.startsWith('/processes')) return '/processes';
   return pathname;
 }
@@ -60,8 +62,8 @@ export default function AppLayout() {
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <Sider
-        width={232}
-        style={{ background: '#002E8C', position: 'sticky', top: 0, height: '100vh' }}
+        width={288}
+        style={{ background: '#002E8C', position: 'sticky', top: 0, height: '100vh', flex: '0 0 288px' }}
       >
         <div style={{ padding: '18px 18px 14px', borderBottom: '1px solid rgba(255,255,255,.12)', display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ width: 34, height: 34, borderRadius: 8, background: '#0055FF', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: 15 }}>С</div>
@@ -71,6 +73,7 @@ export default function AppLayout() {
           </div>
         </div>
         <Menu
+          className="app-sider-menu"
           theme="dark"
           mode="inline"
           selectedKeys={[selectedMenuKey(location.pathname)]}
@@ -78,14 +81,35 @@ export default function AppLayout() {
           items={menuItems.map(item => ({
             ...item,
             label: item.key === '/monitor' && unread > 0 ? (
-              <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                {item.label}
-                <Badge count={unread} size="small" />
+              <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, width: '100%' }}>
+                <span style={{ flex: 1, whiteSpace: 'normal', lineHeight: 1.35 }}>{item.label}</span>
+                <Badge count={unread} size="small" style={{ flexShrink: 0 }} />
               </span>
-            ) : item.label,
+            ) : (
+              <span style={{ whiteSpace: 'normal', lineHeight: 1.35, display: 'block' }}>{item.label}</span>
+            ),
           }))}
           onClick={({ key }) => navigate(key)}
         />
+        <style>{`
+          .app-sider-menu.ant-menu-inline .ant-menu-item {
+            height: auto !important;
+            min-height: 40px;
+            line-height: 1.35 !important;
+            padding-top: 10px !important;
+            padding-bottom: 10px !important;
+            align-items: flex-start !important;
+          }
+          .app-sider-menu .ant-menu-title-content {
+            white-space: normal !important;
+            overflow: visible !important;
+            text-overflow: clip !important;
+            line-height: 1.35;
+          }
+          .app-sider-menu .ant-menu-item .anticon {
+            margin-top: 2px;
+          }
+        `}</style>
         <div style={{ padding: '10px 14px', borderTop: '1px solid rgba(255,255,255,.1)', fontSize: 11, color: 'rgba(255,255,255,.4)' }}>
           {user.email || '—'}
         </div>

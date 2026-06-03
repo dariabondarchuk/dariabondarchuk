@@ -86,6 +86,9 @@ export function mapCompany(c: Record<string, unknown>) {
     offices: c.offices ?? [],
     sites: c.sites ?? [],
     apps: c.apps ?? [],
+    anketaMeta: (c.anketaMeta as Record<string, { customName?: string }>) ?? {},
+    createdAt: c.createdAt ? (c.createdAt as Date).toISOString() : undefined,
+    updatedAt: c.updatedAt ? (c.updatedAt as Date).toISOString() : undefined,
   };
 }
 
@@ -115,13 +118,16 @@ export function mapProcess(p: Record<string, unknown> & { sections?: Array<Recor
   }
   return {
     id: p.id,
-    companyId: p.companyId,
+    companyId: p.companyId ?? null,
+    isCorporate: Boolean(p.isCorporate),
     name: p.name,
     tags: p.tags ?? [],
     status: toClientProcessStatus(p.status as string),
     sentTo: p.sentTo ?? '',
     sentAt: formatDate(p.sentAt as Date | null),
     anketaType: p.anketaType ?? undefined,
+    createdAt: p.createdAt ? (p.createdAt as Date).toISOString() : undefined,
+    updatedAt: p.updatedAt ? (p.updatedAt as Date).toISOString() : undefined,
     sections,
   };
 }

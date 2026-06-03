@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "Process" ADD COLUMN "isCorporate" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "Process" ALTER COLUMN "companyId" DROP NOT NULL;

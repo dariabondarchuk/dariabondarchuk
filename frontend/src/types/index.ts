@@ -115,6 +115,9 @@ export interface Company {
   offices: { name: string; address: string }[];
   sites: { name: string; url: string }[];
   apps: { name: string; url: string }[];
+  anketaMeta?: Record<string, { customName?: string }>;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Responsible {
@@ -133,13 +136,16 @@ export interface Responsible {
 
 export interface Process {
   id: number;
-  companyId: number;
+  companyId: number | null;
+  isCorporate?: boolean;
   name: string;
   tags: string[];
   status: string;
   sentTo: string;
   sentAt: string;
   anketaType?: string;
+  createdAt?: string;
+  updatedAt?: string;
   sections: Record<number, ProcessSection>;
 }
 
@@ -148,6 +154,7 @@ export interface RknFile {
   name: string;
   date: string;
   current: boolean;
+  version?: number;
 }
 
 export interface RknNotification {
@@ -195,6 +202,8 @@ export interface Document {
   filePath?: string | null;
   uploadDate?: string;
   hasFile?: boolean;
+  isCurrent?: boolean;
+  version?: number;
 }
 
 export interface AppState {
@@ -214,7 +223,7 @@ export type AppAction =
   | { type: 'UPDATE_RESPONSIBLE'; id: number; data: Partial<Responsible> }
   | { type: 'UPDATE_PROCESS_SECTION'; processId: number; section: number; status?: string; data: SectionData }
   | { type: 'UPDATE_PROCESS'; id: number; data: Partial<Process> }
-  | { type: 'ADD_PROCESS'; companyId: number; name?: string }
+  | { type: 'ADD_PROCESS'; companyId?: number | null; name?: string; isCorporate?: boolean }
   | { type: 'ADD_PROCESS_FROM_API'; process: Process }
   | { type: 'REPLACE_PROCESS'; process: Process }
   | { type: 'ADD_JOURNAL'; formData: FormData }
@@ -232,10 +241,12 @@ export type AppAction =
   | { type: 'ADD_COMPANY_FROM_API'; company: Company; rknNotification: RknNotification }
   | { type: 'DELETE_COMPANY'; id: number }
   | { type: 'REMOVE_COMPANY'; id: number }
+  | { type: 'DELETE_PROCESS'; id: number }
+  | { type: 'REMOVE_PROCESS'; id: number }
   | { type: 'ADD_DOCUMENT'; formData: FormData }
   | { type: 'ADD_DOCUMENT_FROM_API'; document: Document }
   | { type: 'DELETE_DOCUMENT'; id: number }
   | { type: 'REMOVE_DOCUMENT'; id: number }
   | { type: 'SAVE_PROCESS_SECTION'; processId: number; section: number; status: string; data: SectionData };
 
-export type DispatchFn = (action: AppAction) => void | Promise<void>;
+export type DispatchFn = (action: AppAction) => void | Promise<unknown>;

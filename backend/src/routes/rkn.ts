@@ -4,8 +4,9 @@ import path from 'path';
 import { prisma } from '../utils/prisma';
 import { AuthRequest, authMiddleware } from '../middleware/auth';
 import { upload } from '../middleware/upload';
-import { formatDate, writeAudit } from '../utils/helpers';
+import { writeAudit } from '../utils/helpers';
 import { streamZip } from '../utils/zipArchive';
+import { createRknNotificationForCompany, mapRknNotificationRow } from '../utils/createRknNotification';
 
 const router = Router();
 
@@ -14,19 +15,29 @@ router.get('/', authMiddleware, async (_req, res) => {
     include: { company: true, documents: { orderBy: { version: 'desc' } } },
     orderBy: { id: 'asc' },
   });
-  res.json(items.map(n => ({
-    id: n.id,
-    companyId: n.companyId,
-    dateSubmit: formatDate(n.submitDate),
-    dateChange: formatDate(n.changeDate),
-    status: n.status === 'SUBMITTED' ? 'submitted' : n.status === 'NOT_SUBMITTED' ? 'not_submitted' : 'needs_update',
-    files: n.documents.map(d => ({
-      id: d.id,
-      name: d.fileName,
-      date: formatDate(d.uploadDate),
-      current: d.isCurrent,
-    })),
-  })));
+  res.json(items.map(n => mapRknNotificationRow(n)));
+});
+
+router.post('/', authMiddleware, async (req: AuthRequest, res) => {
+  const body = req.body as { companyId?: number };
+  const companyId = Number(body.companyId);
+  if (!companyId || Number.isNaN(companyId)) {
+    return res.status(400).json({ error: 'Выберите компанию' });
+  }
+
+  const result = await createRknNotificationForCompany(companyId, { userId: req.userId, ip: req.ip });
+  res.status(result.status).json(result.body);
+});
+
+router.post('/notifications', authMiddleware, async (req: AuthRequest, res) => {
+  const body = req.body as { companyId?: number };
+  const companyId = Number(body.companyId);
+  if (!companyId || Number.isNaN(companyId)) {
+    return res.status(400).json({ error: 'Выберите компанию' });
+  }
+
+  const result = await createRknNotificationForCompany(companyId, { userId: req.userId, ip: req.ip });
+  res.status(result.status).json(result.body);
 });
 
 router.post('/:id/documents', authMiddleware, upload.single('file'), async (req: AuthRequest, res) => {
@@ -45,17 +56,29 @@ router.post('/:id/documents', authMiddleware, upload.single('file'), async (req:
     data: { isCurrent: false },
   });
 
+  const nextVersion = (maxVersion._max.version ?? 0) + 1;
+
   const doc = await prisma.rknDocument.create({
     data: {
       notificationId,
       fileName: req.file.originalname,
       filePath: req.file.path,
       isCurrent: true,
-      version: (maxVersion._max.version ?? 0) + 1,
+      version: nextVersion,
     },
   });
 
-  await writeAudit(req.userId, 'RknDocument', doc.id, 'CREATE', { fileName: doc.fileName }, req.ip);
+  if (nextVersion > 1) {
+    await prisma.rknNotification.update({
+      where: { id: notificationId },
+      data: {
+        changeDate: new Date(),
+        status: 'NEEDS_UPDATE',
+      },
+    });
+  }
+
+  await writeAudit(req.userId, 'RknDocument', doc.id, 'CREATE', { fileName: doc.fileName, version: nextVersion }, req.ip);
   res.status(201).json(doc);
 });
 

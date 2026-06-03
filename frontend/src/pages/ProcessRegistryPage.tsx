@@ -14,33 +14,48 @@ import {
   type RegistryTabKey,
 } from '../constants/registryColumns';
 import type { ProcessRegistryRow } from '../utils/registryData';
+import type { Process } from '../types';
 
 const { Title, Text } = Typography;
+
+export type RegistryScopeFilter = 'all' | 'corporate' | 'companies' | number;
+
+function filterRegistryProcesses(processes: Process[], scope: RegistryScopeFilter): Process[] {
+  const base = processes.filter(p => !p.anketaType);
+  if (scope === 'all') return base;
+  if (scope === 'corporate') return base.filter(p => p.isCorporate);
+  if (scope === 'companies') return base.filter(p => !p.isCorporate && p.companyId != null);
+  return base.filter(p => !p.isCorporate && p.companyId === scope);
+}
 
 export default function ProcessRegistryPage() {
   const { state } = useApp();
   const navigate = useNavigate();
   const [tab, setTab] = useState<RegistryTabKey>('processes');
   const [search, setSearch] = useState('');
-  const [companyId, setCompanyId] = useState<number | 'all'>('all');
+  const [scope, setScope] = useState<RegistryScopeFilter>('all');
 
-  const company = useMemo(() => {
-    if (companyId === 'all') return state.companies[0];
-    return state.companies.find(c => c.id === companyId);
-  }, [state.companies, companyId]);
+  const companiesById = useMemo(
+    () => new Map(state.companies.map(c => [c.id, c])),
+    [state.companies],
+  );
+
+  const referenceCompany = useMemo(() => {
+    if (typeof scope === 'number') return companiesById.get(scope);
+    return state.companies[0];
+  }, [scope, companiesById, state.companies]);
 
   const processes = useMemo(() => {
-    let list = state.processes;
-    if (companyId !== 'all') list = list.filter(p => p.companyId === companyId);
+    let list = filterRegistryProcesses(state.processes, scope);
     const q = search.trim().toLowerCase();
     if (q) list = list.filter(p => p.name.toLowerCase().includes(q));
     return list;
-  }, [state.processes, companyId, search]);
+  }, [state.processes, scope, search]);
 
   const tableConfig = useMemo(() => {
-    if (!company) return { rows: [], columns: [], columnKeys: [] as string[] };
-    return getRegistryTableConfig(tab, processes, company);
-  }, [tab, processes, company]);
+    if (!referenceCompany) return { rows: [], columns: [], columnKeys: [] as string[] };
+    return getRegistryTableConfig(tab, processes, referenceCompany, companiesById);
+  }, [tab, processes, referenceCompany, companiesById]);
 
   const columnsWithLink = useMemo(() => {
     if (tab !== 'processes') return tableConfig.columns;
@@ -52,8 +67,15 @@ export default function ProcessRegistryPage() {
           <span
             role="button"
             tabIndex={0}
-            onClick={() => navigate(`/processes/${row.companyId}`)}
-            onKeyDown={e => e.key === 'Enter' && navigate(`/processes/${row.companyId}`)}
+            onClick={() => {
+              if (row.isCorporate) navigate('/corporate-processes');
+              else if (row.companyId) navigate(`/processes/${row.companyId}`);
+            }}
+            onKeyDown={e => {
+              if (e.key !== 'Enter') return;
+              if (row.isCorporate) navigate('/corporate-processes');
+              else if (row.companyId) navigate(`/processes/${row.companyId}`);
+            }}
             style={{
               display: 'inline-block',
               padding: '2px 10px',
@@ -82,13 +104,23 @@ export default function ProcessRegistryPage() {
     exportRegistryCsv(tableConfig.rows as Record<string, unknown>[], cols);
   };
 
+  const scopeOptions = [
+    { value: 'all' as const, label: 'Все процессы' },
+    { value: 'companies' as const, label: 'Все процессы компаний' },
+    { value: 'corporate' as const, label: 'Общекорпоративные процессы' },
+    ...state.companies.map(c => ({
+      value: c.id,
+      label: c.shortName || c.name,
+    })),
+  ];
+
   return (
     <div>
       <Title level={3} style={{ marginTop: 0 }}>
-        Реестр процессов
+        Реестр всех процессов
       </Title>
       <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-        Сводная таблица по всем заполненным анкетам процессов обработки ПДн
+        Сводная таблица по процессам обработки ПДн компаний группы и общекорпоративным процессам
       </Text>
 
       <Card>
@@ -101,16 +133,10 @@ export default function ProcessRegistryPage() {
 
         <Space wrap style={{ marginBottom: 16, width: '100%' }}>
           <Select
-            value={companyId}
-            onChange={setCompanyId}
-            style={{ minWidth: 220 }}
-            options={[
-              { value: 'all', label: 'Все компании' },
-              ...state.companies.map(c => ({
-                value: c.id,
-                label: c.shortName || c.name,
-              })),
-            ]}
+            value={scope}
+            onChange={setScope}
+            style={{ minWidth: 280 }}
+            options={scopeOptions}
           />
           <Input.Search
             placeholder="Поиск по названию процесса..."
@@ -136,7 +162,7 @@ export default function ProcessRegistryPage() {
           dataSource={tableConfig.rows}
           columns={columnsWithLink}
           pagination={{ pageSize: 20, showSizeChanger: true, showTotal: t => `Всего: ${t}` }}
-          scroll={{ x: tab === 'processes' ? 12000 : 2400 }}
+          scroll={{ x: tab === 'processes' ? 12400 : 2400 }}
           size="small"
           bordered
         />

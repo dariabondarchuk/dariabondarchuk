@@ -2,7 +2,13 @@ import { useState } from 'react';
 import { Select, Typography } from 'antd';
 import { useApp } from '../context/AppContext';
 import DocumentManager from '../components/DocumentManager';
-import { PDN_DOCUMENT_TYPES, THREAT_DOCUMENT_TYPES } from '../constants/pdnDocuments';
+import {
+  ALL_REGISTERED_DOCUMENT_TYPES,
+  PDN_DOCUMENT_TYPES,
+  THREAT_DOCUMENT_TYPES,
+} from '../constants/pdnDocuments';
+
+const ALL_REGISTERED_TYPE_KEYS = ALL_REGISTERED_DOCUMENT_TYPES.map(t => t.type);
 
 const { Title } = Typography;
 
@@ -31,6 +37,7 @@ export default function DocumentsPage() {
             title="Документы, сформированные на основе данных из анкет"
             description="Документы по процессам обработки ПДн компании"
             documentTypes={PDN_DOCUMENT_TYPES}
+            allRegisteredTypes={ALL_REGISTERED_TYPE_KEYS}
             style={{ marginBottom: 16 }}
           />
           <DocumentManager
@@ -38,6 +45,8 @@ export default function DocumentsPage() {
             title="Модель угроз"
             description="Документы модели угроз информационных систем"
             documentTypes={THREAT_DOCUMENT_TYPES}
+            allRegisteredTypes={ALL_REGISTERED_TYPE_KEYS}
+            showOtherDocuments
           />
         </>
       ) : (
