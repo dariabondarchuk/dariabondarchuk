@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import fs from 'fs';
+import path from 'path';
 import authRoutes from './routes/auth';
 import companiesRoutes from './routes/companies';
 import processesRoutes from './routes/processes';
@@ -22,7 +23,7 @@ if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-app.use(cors({ origin: 'http://localhost:5173' }));
+app.use(cors({ origin: process.env.PUBLIC_URL || 'http://localhost:5173' }));
 app.use(express.json({ limit: '50mb' }));
 app.use('/uploads', express.static(uploadDir));
 
@@ -43,8 +44,11 @@ app.use('/api/documents', documentsRoutes);
 app.use('/api/audit', auditRoutes);
 app.use('/api/dadata', dadataRoutes);
 
-app.use((_req, res) => {
-  res.status(404).json({ error: 'Not found' });
+// В продакшене раздаём собранный фронтенд
+const frontendPath = path.join(__dirname, '../../frontend/dist');
+app.use(express.static(frontendPath));
+app.get('*', (_req, res) => {
+  res.sendFile(path.join(frontendPath, 'index.html'));
 });
 
 app.listen(PORT, () => {
