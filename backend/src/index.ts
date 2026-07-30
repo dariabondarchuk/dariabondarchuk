@@ -45,12 +45,31 @@ app.use('/api/audit', auditRoutes);
 app.use('/api/dadata', dadataRoutes);
 
 // В продакшене раздаём собранный фронтенд
-const frontendPath = path.join(__dirname, '../../frontend/dist');
-app.use(express.static(frontendPath));
-app.get('/{*path}', (_req, res) => {
-  res.sendFile(path.join(frontendPath, 'index.html'));
-});
+// dist/src/index.js → ../../../frontend/dist
+// src/index.ts (ts-node) → ../../frontend/dist
+// cwd=backend → ../frontend/dist
+const frontendCandidates = [
+  path.join(__dirname, '../../../frontend/dist'),
+  path.join(__dirname, '../../frontend/dist'),
+  path.join(process.cwd(), '../frontend/dist'),
+  path.join(process.cwd(), 'frontend/dist'),
+];
+const frontendPath =
+  frontendCandidates.find((p) => fs.existsSync(path.join(p, 'index.html'))) ?? null;
 
-app.listen(PORT, () => {
-  console.log(`API server running on http://localhost:${PORT}`);
+if (frontendPath) {
+  console.log(`Serving frontend from ${frontendPath}`);
+  app.use(express.static(frontendPath));
+  app.get('/{*path}', (_req, res) => {
+    res.sendFile(path.join(frontendPath, 'index.html'));
+  });
+} else {
+  console.warn('Frontend dist not found; API-only mode');
+  app.use((_req, res) => {
+    res.status(404).json({ error: 'Not found' });
+  });
+}
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`API server running on http://0.0.0.0:${PORT}`);
 });
