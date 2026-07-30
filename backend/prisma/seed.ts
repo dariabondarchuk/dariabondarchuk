@@ -4,7 +4,15 @@ import { PrismaClient, ProcessStatus, Role, SectionStatus } from '@prisma/client
 import bcrypt from 'bcryptjs';
 import { Pool } from 'pg';
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const connectionString = process.env.DATABASE_URL || '';
+const needsSsl =
+  process.env.PGSSLMODE === 'require' ||
+  /sslmode=require/i.test(connectionString) ||
+  /\.render\.com|\.neon\.tech|\.supabase\.co/i.test(connectionString);
+const pool = new Pool({
+  connectionString,
+  ...(needsSsl ? { ssl: { rejectUnauthorized: false } } : {}),
+});
 const prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
 
 const SECTION_NAMES: Record<number, string> = {

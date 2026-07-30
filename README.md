@@ -125,6 +125,32 @@ JWT_SECRET=длинный-секрет-32+символов
 
 Приложение доступно на порту **4000** (интерфейс + `/api`).
 
+### Render (https://pdn-registry.onrender.com)
+
+Сайт и `/api/health` могут работать, а **логин падает с 500**, если БД не настроена.
+
+**1. Environment** в сервисе Render:
+
+| Переменная | Значение |
+|------------|----------|
+| `DATABASE_URL` | Internal/External URL PostgreSQL с Render (**добавьте** `?sslmode=require`, если его нет) |
+| `JWT_SECRET` | длинный секрет ≥ 32 символов |
+| `PUBLIC_URL` | `https://pdn-registry.onrender.com` |
+| `NODE_ENV` | `production` |
+
+**2. Один раз применить схему и создать admin** (Shell в Render или с ПК):
+
+```powershell
+cd backend
+$env:DATABASE_URL="postgresql://...@...render.com/...?sslmode=require"
+npx prisma migrate deploy
+npm run db:seed
+```
+
+Логин после seed: `admin@samolet.ru` / `admin123`
+
+**3. Redeploy** сервиса после пуша правок SSL.
+
 ---
 
 ## Показать ссылку на другом устройстве (туннель)
@@ -200,6 +226,7 @@ npm run build        # сборка для продакшена
 | Неверный пароль | `npm run db:seed` в `backend/` |
 | Backend долго стартует | Первый запуск `ts-node` может занять 1–2 минуты |
 | CORS при доступе по IP | В `.env` задайте `PUBLIC_URL` с вашим Network URL |
+| Логин на Render: 500 / «проверьте backend и БД» | Нет/неверный `DATABASE_URL`, нет SSL (`?sslmode=require`), не выполнены `prisma migrate deploy` и `db:seed` |
 
 ---
 
